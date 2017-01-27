@@ -159,8 +159,18 @@ parseArith = buildExpressionParser table parseArithAtom
             , [ Infix (Bin Plus  <$ reservedOp "+") AssocLeft
               , Infix (Bin Minus <$ reservedOp "-") AssocLeft
               ]
+            , [ Prefix ((\x -> If x BFalse BTrue) <$ reservedOp "!")
+              ]
             , [ Infix (Bin Less  <$ reservedOp "<") AssocNone
               , Infix (Bin Eq    <$ reservedOp "==") AssocNone
+              , Infix ((\x y -> Bin Less y x)  <$ reservedOp ">") AssocNone
+              , Infix ((\x y -> If (Bin Less y x) BFalse BTrue) <$ reservedOp "<=") AssocNone
+              , Infix ((\x y -> If (Bin Less x y) BFalse BTrue) <$ reservedOp ">=") AssocNone
+              , Infix ((\x y -> If (Bin Eq x y) BFalse BTrue)   <$ reservedOp "!=") AssocNone
+              ]
+            , [ Infix ((\x y -> If x y BFalse) <$ reservedOp "&&") AssocRight
+              ]
+            , [ Infix ((\x y -> If x BTrue y)  <$ reservedOp "||") AssocRight
               ]
             ]
 
