@@ -31,6 +31,27 @@ interpArith env (Let name val expr) = interpArith (M.insert name val' env) expr
     where
         val' = interpArith env val
 
+data InterpError where
+    UndefinedVar :: String -> InterpError
+    deriving (Show)
+
+interpArith2 :: Env -> Arith -> Either InterpError Integer
+interpArith2 _ (Lit i)           = Right i
+interpArith2 env (Bin Plus e1 e2) = 
+    case (interpArith2 env e1, interpArith2 env e2) of
+        (Right v1', Right v2') -> Right (v1' + v2')
+        (Left err, _) -> Left err
+        (_, Left err) -> Left err
+interpArith2 env (Var v) = case M.lookup v env of
+                            Just x -> Right x
+                            Nothing -> Left $ UndefinedVar v
+interpArith2 env (Let name val expr) =
+    case interpArith2 env val of
+        (Right val') -> interpArith2 (M.insert name val' env) expr
+        err -> err
+
+showInterpError :: InterpError -> String
+showInterpError (UndefinedVar v) = "Undefined variable '" ++ v ++ "'"
 
 lexer :: TokenParser u
 lexer = makeTokenParser $ emptyDef
@@ -83,7 +104,9 @@ parseArith = buildExpressionParser table parseArithAtom
 arith :: Parser Arith
 arith = whiteSpace *> parseArith <* eof
 
-eval :: String -> Maybe Integer
+eval :: String -> IO ()
 eval s = case parse arith s of
-  Left _  -> Nothing
-  Right e -> Just (interpArith M.empty e)
+  Left err  -> print err
+  Right e -> case interpArith2 M.empty e of
+    Left err -> putStrLn (showInterpError err)
+    Right val -> print val
