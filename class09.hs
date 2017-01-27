@@ -23,35 +23,77 @@ data Op where
     Eq    :: Op
     deriving (Show, Eq)
 
-type Env = M.Map String Integer
+data Value where
+    VInt :: Integer -> Value
+    VBool :: Bool -> Value
+    deriving (Show, Eq)
+
+type Env = M.Map String Value
 
 data InterpError where
     UndefinedVar :: String -> InterpError
     DivisonByZero :: InterpError
+    TypeError :: InterpError
     deriving (Show)
 
 showInterpError :: InterpError -> String
 showInterpError (UndefinedVar v) = "Undefined variable '" ++ v ++ "'"
 showInterpError (DivisonByZero)  = "Division by zero"
+showInterpError (TypeError)  = "Type error"
 
 
-{-
-interpArith3 :: Env -> Arith -> Either InterpError Integer
-interpArith3 _ (Lit i) = Right i
+interpBool :: Env -> Arith -> Either InterpError Bool
+interpBool env e = case interpArith3 env e of
+    Right (VBool v) -> Right v
+    Right _ -> Left TypeError
+    Left e -> Left e
+
+interpInt :: Env -> Arith -> Either InterpError Integer
+interpInt env e = case interpArith3 env e of
+    Right (VInt v) -> Right v
+    Right _ -> Left TypeError
+    Left e -> Left e
+
+intOp2 :: Env -> (Integer -> Integer -> Integer) -> Arith -> Arith -> Either InterpError Value
+intOp2 env op e1 e2 = do
+    l <- interpInt env e1
+    r <- interpInt env e2
+    return $ VInt (op l r)
+
+interpArith3 :: Env -> Arith -> Either InterpError Value
+interpArith3 _ (Lit i) = Right (VInt i)
+interpArith3 _ BTrue = Right (VBool True)
+interpArith3 _ BFalse = Right (VBool False)
 interpArith3 env (Var v) = case M.lookup v env of
                             Just x -> Right x
                             Nothing -> Left $ UndefinedVar v
-interpArith3 env (Bin Plus  e1 e2) = (+) <$> interpArith3 env e1 <*> interpArith3 env e2
-interpArith3 env (Bin Minus e1 e2) = (-) <$> interpArith3 env e1 <*> interpArith3 env e2
-interpArith3 env (Bin Times e1 e2) = (*) <$> interpArith3 env e1 <*> interpArith3 env e2
-interpArith3 env (Bin Div   e1 e2) =
-    (interpArith3 env e2 >>= div') <*> interpArith3 env e1
-    where
-        div' 0 = Left DivisonByZero
-        div' x = Right (\y -> x `div` y)
+interpArith3 env (Bin Plus  e1 e2) = intOp2 env (+) e1 e2
+interpArith3 env (Bin Minus e1 e2) = intOp2 env (-) e1 e2
+interpArith3 env (Bin Times e1 e2) = intOp2 env (*) e1 e2
+
+interpArith3 env (Bin Div   e1 e2) = do
+    denom <- interpInt env e2
+    if denom == 0 then Left DivisonByZero
+                  else do
+                        num <- interpInt env e1
+                        return $ VInt $ num `div` denom
+
+interpArith3 env (Bin Less e1 e2) = do
+    l <- interpInt env e1
+    r <- interpInt env e2
+    return $ VBool $ l < r
+interpArith3 env (Bin Eq e1 e2) = do
+    l <- interpInt env e1
+    r <- interpInt env e2
+    return $ VBool $ l == r
+
 interpArith3 env (Let name val expr) =
     interpArith3 env val >>= (\x -> interpArith3 (M.insert name x env) expr)
--}
+interpArith3 env (If eCond eThen eElse) = do
+    bCond <- interpBool env eCond
+    if bCond then interpArith3 env eThen
+             else interpArith3 env eElse
+
 
 lexer :: TokenParser u
 lexer = makeTokenParser $ emptyDef
@@ -125,11 +167,10 @@ parseArith = buildExpressionParser table parseArithAtom
 arith :: Parser Arith
 arith = whiteSpace *> parseArith <* eof
 
-{-
+
 eval :: String -> IO ()
 eval s = case parse arith s of
   Left err  -> print err
   Right e -> case interpArith3 M.empty e of
     Left err -> putStrLn (showInterpError err)
     Right val -> print val
-    -}
