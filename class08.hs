@@ -2,12 +2,13 @@
 
 import Prelude hiding ((<$>), (<$), (<*>), (<*), (*>))
 import Parsing
+import qualified Data.Map as M
 
 data Arith where
   Lit :: Integer -> Arith
   Bin :: Op -> Arith -> Arith -> Arith
   Var :: String -> Arith
-  Let :: Arith -> Arith -> Arith -> Arith
+  Let :: String -> Arith -> Arith -> Arith
   deriving (Show)
 
 data Op where
@@ -16,11 +17,20 @@ data Op where
   Times :: Op
   deriving (Show, Eq)
 
-interpArith :: Arith -> Integer
-interpArith (Lit i)           = i
-interpArith (Bin Plus e1 e2)  = interpArith e1 + interpArith e2
-interpArith (Bin Minus e1 e2) = interpArith e1 - interpArith e2
-interpArith (Bin Times e1 e2) = interpArith e1 * interpArith e2
+type Env = M.Map String Integer
+
+interpArith :: Env -> Arith -> Integer
+interpArith _ (Lit i)           = i
+interpArith env (Bin Plus e1 e2)  = interpArith env e1 + interpArith env e2
+interpArith env (Bin Minus e1 e2) = interpArith env e1 - interpArith env e2
+interpArith env (Bin Times e1 e2) = interpArith env e1 * interpArith env e2
+interpArith env (Var v) = case M.lookup v env of
+                            Just x -> x
+                            Nothing -> error $ "Undefined variable: " ++ v
+interpArith env (Let name val expr) = interpArith (M.insert name val' env) expr
+    where
+        val' = interpArith env val
+
 
 lexer :: TokenParser u
 lexer = makeTokenParser $ emptyDef
@@ -55,7 +65,7 @@ parseArithAtom = (Lit <$> integer) <|> parens parseArith <|> parseLet <|> parseV
 parseLet :: Parser Arith
 parseLet =
     Let <$  reserved "let"
-        <*> parseVar
+        <*> identifier
         <*  reserved "="
         <*> parseArith
         <*  reserved "in"
@@ -76,4 +86,4 @@ arith = whiteSpace *> parseArith <* eof
 eval :: String -> Maybe Integer
 eval s = case parse arith s of
   Left _  -> Nothing
-  Right e -> Just (interpArith e)
+  Right e -> Just (interpArith M.empty e)
