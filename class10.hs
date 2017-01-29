@@ -23,6 +23,29 @@ data Op where
     Eq    :: Op
     deriving (Show, Eq)
 
+data FullArith where
+    FLit :: Integer -> FullArith
+    FUn  :: FOp -> FullArith -> FullArith
+    FBin :: FOp -> FullArith -> FullArith -> FullArith
+    FVar :: String -> FullArith
+    FLet :: String -> FullArith -> FullArith -> FullArith
+    FFalse :: FullArith
+    FTrue  :: FullArith
+    FIf  :: FullArith -> FullArith -> FullArith -> FullArith
+    deriving (Show)
+
+data FOp where
+    ArOp :: Op -> FOp
+    Le   :: FOp
+    Ne   :: FOp
+    Gt   :: FOp
+    Ge   :: FOp
+    Not  :: FOp
+    And  :: FOp
+    Or   :: FOp
+    deriving (Show, Eq)
+
+
 data Type where
     TBool :: Type
     TInteger :: Type
@@ -174,63 +197,81 @@ whiteSpace = getWhiteSpace lexer
 identifier :: Parser String
 identifier = getIdentifier lexer
 
-parseVar :: Parser Arith
-parseVar = Var <$> identifier
+parseVar :: Parser FullArith
+parseVar = FVar <$> identifier
 
-parseArithAtom :: Parser Arith
+parseArithAtom :: Parser FullArith
 parseArithAtom =
-    (Lit <$> integer) <|> 
+    (FLit <$> integer) <|>
     parens parseArith <|> 
     parseLet <|> 
     parseVar <|>
     parseIf <|>
-    (BTrue  <$ reserved "True") <|>
-    (BFalse <$ reserved "False")
+    (FTrue  <$ reserved "True") <|>
+    (FFalse <$ reserved "False")
 
-parseLet :: Parser Arith
+parseLet :: Parser FullArith
 parseLet =
-    Let <$  reserved "let"
+    FLet <$  reserved "let"
         <*> identifier
         <*  reserved "="
         <*> parseArith
         <*  reserved "in"
         <*> parseArith 
 
-parseIf :: Parser Arith
+parseIf :: Parser FullArith
 parseIf =
-    If  <$  reserved "if"
+    FIf <$  reserved "if"
         <*> parseArith
         <*  reserved "then"
         <*> parseArith
         <*  reserved "else"
         <*> parseArith 
 
-parseArith :: Parser Arith
+parseArith :: Parser FullArith
 parseArith = buildExpressionParser table parseArithAtom
   where
-    table = [ [ Infix (Bin Times <$ reservedOp "*") AssocLeft
-              , Infix (Bin Div   <$ reservedOp "/") AssocLeft
+    table = [ [ Infix (FBin (ArOp Times) <$ reservedOp "*") AssocLeft
+              , Infix (FBin (ArOp Div)   <$ reservedOp "/") AssocLeft
               ]
-            , [ Infix (Bin Plus  <$ reservedOp "+") AssocLeft
-              , Infix (Bin Minus <$ reservedOp "-") AssocLeft
+            , [ Infix (FBin (ArOp Plus)  <$ reservedOp "+") AssocLeft
+              , Infix (FBin (ArOp Minus) <$ reservedOp "-") AssocLeft
               ]
-            , [ Prefix ((\x -> If x BFalse BTrue) <$ reservedOp "!")
+            , [ Prefix (FUn Not         <$ reservedOp "!")
               ]
-            , [ Infix (Bin Less  <$ reservedOp "<") AssocNone
-              , Infix (Bin Eq    <$ reservedOp "==") AssocNone
-              , Infix ((\x y -> Bin Less y x)  <$ reservedOp ">") AssocNone
-              , Infix ((\x y -> If (Bin Less y x) BFalse BTrue) <$ reservedOp "<=") AssocNone
-              , Infix ((\x y -> If (Bin Less x y) BFalse BTrue) <$ reservedOp ">=") AssocNone
-              , Infix ((\x y -> If (Bin Eq x y) BFalse BTrue)   <$ reservedOp "!=") AssocNone
+            , [ Infix (FBin (ArOp Less)  <$ reservedOp "<") AssocNone
+              , Infix (FBin (ArOp Eq)    <$ reservedOp "==") AssocNone
+              , Infix (FBin Gt   <$ reservedOp ">") AssocNone
+              , Infix (FBin Le   <$ reservedOp "<=") AssocNone
+              , Infix (FBin Ge   <$ reservedOp ">=") AssocNone
+              , Infix (FBin Ne   <$ reservedOp "!=") AssocNone
               ]
-            , [ Infix ((\x y -> If x y BFalse) <$ reservedOp "&&") AssocRight
+            , [ Infix (FBin And  <$ reservedOp "&&") AssocRight
               ]
-            , [ Infix ((\x y -> If x BTrue y)  <$ reservedOp "||") AssocRight
+            , [ Infix (FBin Or   <$ reservedOp "||") AssocRight
               ]
             ]
 
+
+desugar :: FullArith -> Arith
+desugar (FLit i) = Lit i
+desugar FFalse = BFalse
+desugar FTrue  = BTrue
+desugar (FVar v) = Var v
+desugar (FIf c e1 e2) = If (desugar c) (desugar e1) (desugar e2)
+desugar (FLet n v e) = Let n (desugar v) (desugar e)
+desugar (FBin (ArOp op) e1 e2) = Bin op (desugar e1) (desugar e2)
+desugar (FUn Not e) = If (desugar e) BFalse BTrue
+desugar (FBin Ne e1 e2) = desugar (FUn Not (FBin (ArOp Eq) e1 e2))
+desugar (FBin Le e1 e2) = desugar (FUn Not (FBin (ArOp Less) e2 e1))
+desugar (FBin Gt e1 e2) = desugar (FBin (ArOp Less) e2 e1)
+desugar (FBin Ge e1 e2) = desugar (FUn Not (FBin (ArOp Less) e1 e2))
+desugar (FBin And e1 e2) = desugar (FIf e1 e2 FFalse)
+desugar (FBin Or e1 e2) = desugar (FIf e1 FTrue e2)
+
+
 arith :: Parser Arith
-arith = whiteSpace *> parseArith <* eof
+arith = whiteSpace *> (desugar <$> parseArith) <* eof
 
 
 showAsType :: Type -> Integer -> String
