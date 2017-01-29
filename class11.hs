@@ -122,6 +122,42 @@ subst = subst' S.empty where
     subst' bound n e1 (If cond eT eF) = If (subst' bound n e1 cond) (subst' bound n e1 eT) (subst' bound n e1 eF)
     subst' _ _ _ e = e
 
+
+runOp :: Op -> Arith -> Arith -> Maybe Arith
+runOp Plus  (Lit x) (Lit y) = Just $ Lit (x+y)
+runOp Minus (Lit x) (Lit y) = Just $ Lit (x-y)
+runOp Times (Lit x) (Lit y) = Just $ Lit (x*y)
+runOp Div   (Lit _) (Lit 0) = Nothing
+runOp Div   (Lit x) (Lit y) = Just $ Lit (x `div` y)
+runOp Less  (Lit x) (Lit y) = Just $ if (x<y) then BTrue else BFalse
+runOp Eq    (Lit x) (Lit y) = Just $ if (x==y) then BTrue else BFalse
+runOp _ _ _ = Nothing
+
+(<<|>>) :: Maybe a -> Maybe a -> Maybe a
+(<<|>>) x y = case x of
+    Just v -> Just v
+    Nothing -> y
+
+step :: Arith -> Maybe Arith
+step (Bin op e1 e2) =
+    (Bin op <$> step e1 <*> Just e2) <<|>>
+    (Bin op <$> Just e1 <*> step e2) <<|>>
+    (runOp op e1 e2)
+step (If BTrue e _) = Just e
+step (If BFalse _ e) = Just e
+step (If cond eT eF) = If <$> (step cond) <*> Just eT <*> Just eF
+step (Let n v e1) =
+    (Let <$> Just n <*> (step v) <*> Just e1) <<|>>
+    Just (subst n v e1)
+step _ = Nothing
+
+
+reduce :: Arith -> Arith
+reduce e = case step e of
+    Just e' -> reduce e'
+    Nothing -> e
+
+
 bopType :: Op -> (Type, Type, Type)
 bopType Plus  = (TInteger, TInteger, TInteger)
 bopType Minus = (TInteger, TInteger, TInteger)
@@ -309,3 +345,10 @@ eval s = case parse arith s of
         Right t -> case interpArith M.empty e of
             Left err -> putStrLn (showInterpError err)
             Right val -> putStrLn $ showAsType t val
+
+eval2 :: String -> IO ()
+eval2 s = case parse arith s of
+    Left err  -> print err
+    Right e -> case inferArith e of
+        Left err -> putStrLn (showTypeError err)
+        Right _ -> putStrLn $ showArith $ reduce e
