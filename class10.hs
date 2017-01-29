@@ -53,16 +53,48 @@ data InterpError where
 showInterpError :: InterpError -> String
 showInterpError (DivisonByZero)  = "Division by zero"
 
+
+bopType :: Op -> (Type, Type, Type)
+bopType Plus  = (TInteger, TInteger, TInteger)
+bopType Minus = (TInteger, TInteger, TInteger)
+bopType Times = (TInteger, TInteger, TInteger)
+bopType Div   = (TInteger, TInteger, TInteger)
+bopType Eq    = (TInteger, TInteger, TBool)
+bopType Less  = (TInteger, TInteger, TBool)
+
+
 infer :: Ctx -> Arith -> Either TypeError Type
 infer ctx (Lit _) = Right TInteger
 infer ctx BTrue = Right TBool
 infer ctx BFalse = Right TBool
+infer ctx (Bin op e1 e2) = do
+    let (t1,t2, tOut) = bopType op
+    check ctx e1 t1
+    check ctx e2 t2
+    return tOut
+infer ctx (Var v) = case M.lookup v ctx of
+                        Just x -> Right x
+                        Nothing -> Left $ UndefinedVar v
+infer ctx (If cond eThen eElse) = do
+    check ctx cond TBool
+    t1 <- infer ctx eThen
+    t2 <- infer ctx eElse
+    if t1 /= t2 then Left $ TypeMismatch eElse t1 t2
+                else Right t1
+infer ctx (Let name val expr) = do
+    t <- infer ctx val
+    infer (M.insert name t ctx) expr
 
 check :: Ctx -> Arith -> Type -> Either TypeError ()
 check ctx e t = do
     t1 <- infer ctx e
     if t == t1 then return ()
                else Left $ TypeMismatch e t t1
+
+
+inferArith :: Arith -> Either TypeError Type
+inferArith = infer M.empty
+
 
 lexer :: TokenParser u
 lexer = makeTokenParser $ emptyDef
