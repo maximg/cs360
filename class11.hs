@@ -107,10 +107,20 @@ fv = fv' S.empty where
     fv' bound (Let n v e) = fv' bound v `S.union` fv' (S.insert n bound) e
     fv' bound (Bin _ e1 e2) = fv' bound e1 `S.union` fv' bound e2
     fv' bound (If cond e1 e2) = fv' bound cond `S.union` fv' bound e1 `S.union` fv' bound e2
-    fv' bound (Var n) = if n `S.member` bound then S.empty
-                                            else S.singleton n
+    fv' bound (Var v) = if v `S.member` bound then S.empty
+                                              else S.singleton v
     fv' _ _ = S.empty
 
+
+subst :: String -> Arith -> Arith -> Arith
+subst = subst' S.empty where
+    subst' bound n e1 (Var v) =
+        if v == n && not (v `S.member` bound) then e1
+                                              else Var v
+    subst' bound n e1 (Bin op eL eR) = Bin op (subst' bound n e1 eL) (subst' bound n e1 eR)
+    subst' bound n e1 (Let n1 v e) = Let n1 (subst' bound n e1 v) (subst' (S.insert n1 bound) n e1 e)
+    subst' bound n e1 (If cond eT eF) = If (subst' bound n e1 cond) (subst' bound n e1 eT) (subst' bound n e1 eF)
+    subst' _ _ _ e = e
 
 bopType :: Op -> (Type, Type, Type)
 bopType Plus  = (TInteger, TInteger, TInteger)
