@@ -68,22 +68,10 @@ parseLambda =
            <*  reservedOp "->"
            <*> parseExpr
 
-parseAdd :: Parser Expr
-parseAdd =
-    Add <$> parseAtom 
-        <*  reservedOp "+" 
-         *> parseAtom
-
-parseApply :: Parser Expr
-parseApply =
-    Apply <$> parseAtom
-          <*> parseAtom
-
-
 parseExpr :: Parser Expr
 parseExpr = buildExpressionParser table parseAtom
   where
-    table = [ [ Infix (Apply <$ reservedOp "$") AssocLeft
+    table = [ [ Infix (Apply <$ reservedOp "") AssocLeft
               ]
             , [ Infix (Add <$ reservedOp "+") AssocLeft
               ]  
