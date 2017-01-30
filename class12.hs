@@ -1,6 +1,8 @@
 {-# LANGUAGE GADTs #-}
 
+import Prelude
 import Parsing2
+import qualified Data.Map as M
 
 data Expr where
     Var    :: String -> Expr
@@ -11,6 +13,28 @@ data Expr where
     deriving (Show)
 
 -- (^x -> x + 1) 2
+
+data InterpError where
+    UndefinedVar :: String -> InterpError
+    TypeMismatch :: Expr -> InterpError
+    ExpectedIdent :: Expr -> InterpError
+    deriving (Show)
+
+data Value where
+    VInt :: Integer -> Value
+    VFun :: (Value -> Either InterpError Value) -> Value
+
+type Env = M.Map String Value
+
+showInterpError :: InterpError -> String
+showInterpError (UndefinedVar name) = "Undefined variable " ++ name
+showInterpError (TypeMismatch _) = "Unexpected type" -- FIXME
+showInterpError (ExpectedIdent _) = "Lambda parameter must be an identifier"
+
+showValue :: Value -> String
+showValue (VInt i) = show i
+showValue (VFun _) = "<function>"
+
 
 lexer :: TokenParser u
 lexer = makeTokenParser emptyDef
@@ -59,7 +83,7 @@ parseApply =
 parseExpr :: Parser Expr
 parseExpr = buildExpressionParser table parseAtom
   where
-    table = [ [ Infix (Apply <$ whiteSpace) AssocLeft
+    table = [ [ Infix (Apply <$ reservedOp "$") AssocLeft
               ]
             , [ Infix (Add <$ reservedOp "+") AssocLeft
               ]  
@@ -72,3 +96,36 @@ p :: String -> Expr
 p s = case parse expr s of
   Left err -> error (show err)
   Right e  -> e
+
+
+interp :: Env -> Expr -> Either InterpError Value
+interp env (Lit i) = do return $ VInt i
+interp env (Var name) = case M.lookup name env of
+    Just val -> Right val
+    Nothing -> Left $ UndefinedVar name
+interp env (Add e1 e2) = do
+    v1 <- interp env e1
+    v2 <- interp env e2
+    add v1 v2
+    where
+        add (VInt x) (VInt y) = Right $ VInt (x+y)
+        add (VFun _) _ = Left $ TypeMismatch e1
+        add _ (VFun _) = Left $ TypeMismatch e2
+interp env e@(Lambda par e1) = case par of
+    Var name -> Right $ VFun (\exp -> interp (M.insert name exp env) e1)
+    otherwise -> Left $ ExpectedIdent e
+interp env (Apply f e1) = do
+    f' <- interp env f
+    f'' <- typeCheck f'
+    interp env e1 >>= f''
+    where
+        typeCheck (VFun f) = Right f
+        typeCheck (VInt _) = Left $ TypeMismatch f
+
+
+eval :: String -> IO ()
+eval s = case parse expr s of
+    Left err  -> print err
+    Right e -> case interp M.empty e of
+        Left err -> putStrLn (showInterpError err)
+        Right v -> putStrLn (showValue v)
