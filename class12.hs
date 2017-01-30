@@ -103,9 +103,8 @@ interp env e@(Lambda par e1) = case par of
     Var name -> Right $ VFun (\exp -> interp (M.insert name exp env) e1)
     otherwise -> Left $ ExpectedIdent e
 interp env (Apply f e1) = do
-    f' <- interp env f
-    f'' <- typeCheck f'
-    interp env e1 >>= f''
+    f' <- interp env f >>= typeCheck
+    interp env e1 >>= f'
     where
         typeCheck (VFun f) = Right f
         typeCheck (VInt _) = Left $ TypeMismatch f
