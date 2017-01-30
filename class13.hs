@@ -8,7 +8,7 @@ data Expr where
     Var    :: String -> Expr
     Lit    :: Integer -> Expr
     Add    :: Expr -> Expr -> Expr
-    Lambda :: Expr -> Expr -> Expr
+    Lambda :: Expr -> Maybe Type -> Expr -> Expr
     Apply  :: Expr -> Expr -> Expr
     deriving (Show)
 
@@ -25,6 +25,11 @@ data Value where
     VClosure :: String -> Expr -> Env -> Value
 
 type Env = M.Map String Value
+
+data Type where
+  TyInt :: Type
+  TyFun :: Type -> Type -> Type
+  deriving (Show)
 
 showInterpError :: InterpError -> String
 showInterpError (UndefinedVar name) = "Undefined variable " ++ name
@@ -65,6 +70,7 @@ parseLambda :: Parser Expr
 parseLambda =
     Lambda <$  reservedOp "^"
            <*> (Var <$> identifier)
+           <*> optionMaybe (reservedOp "[" *> parseType <* reservedOp "]")
            <*  reservedOp "->"
            <*> parseExpr
 
@@ -77,38 +83,22 @@ parseExpr = buildExpressionParser table parseAtom
               ]  
             ]
 
+parseTypeAtom :: Parser Type
+parseTypeAtom
+    =   TyInt <$ reservedOp "Int"
+    <|> parens parseType
+
+parseType :: Parser Type
+parseType = buildExpressionParser table parseTypeAtom
+  where
+    table = [ [ Infix (TyFun <$ reservedOp "->") AssocRight
+              ]
+            ]
+
+
 expr :: Parser Expr
 expr = whiteSpace *> parseExpr <* eof
 
-p :: String -> Expr
-p s = case parse expr s of
-  Left err -> error (show err)
-  Right e  -> e
-
-{-
-interp :: Env -> Expr -> Either InterpError Value
-interp env (Lit i) = do return $ VInt i
-interp env (Var name) = case M.lookup name env of
-    Just val -> Right val
-    Nothing -> Left $ UndefinedVar name
-interp env (Add e1 e2) = do
-    v1 <- interp env e1
-    v2 <- interp env e2
-    add v1 v2
-    where
-        add (VInt x) (VInt y) = Right $ VInt (x+y)
-        add (VFun _) _ = Left $ TypeMismatch e1
-        add _ (VFun _) = Left $ TypeMismatch e2
-interp env e@(Lambda par e1) = case par of
-    Var name -> Right $ VFun (\exp -> interp (M.insert name exp env) e1)
-    otherwise -> Left $ ExpectedIdent e
-interp env (Apply f e1) = do
-    f' <- interp env f >>= typeCheck
-    interp env e1 >>= f'
-    where
-        typeCheck (VFun f) = Right f
-        typeCheck (VInt _) = Left $ TypeMismatch f
--}
 
 interpC :: Env -> Expr -> Either InterpError Value
 interpC env (Lit i) = do return $ VInt i
@@ -123,7 +113,7 @@ interpC env (Add e1 e2) = do
         add (VInt x)        (VInt y)         = Right $ VInt (x+y)
         add (VClosure _ _ _) _               = Left $ TypeMismatch e1
         add _               (VClosure _ _ _) = Left $ TypeMismatch e2
-interpC env e@(Lambda par e1) = case par of
+interpC env e@(Lambda par t e1) = case par of
     Var name -> Right $ VClosure name e1 env
     otherwise -> Left $ ExpectedIdent e
 interpC env (Apply f e1) = do
