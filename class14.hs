@@ -132,34 +132,30 @@ infer ctx e@(Apply e1 e2) = do
 
 
 check :: Ctx -> Expr -> Type -> Either TypeError ()
-check _ e@(Lambda _ Nothing _) _ = Left $ RequireType e
+check ctx e@(Lambda _ Nothing expr) TyInt = Left $ TypeMismatch e
+check ctx e@(Lambda (Var name) Nothing expr) (TyFun tIn tOut) = check (M.insert name tIn ctx) expr tOut
 check ctx expr t = do
     t' <- infer ctx expr
     if t' == t then Right ()
                else Left $ TypeMismatch expr 
 
 
-interpC :: Env -> Expr -> Either InterpError Value
-interpC env (Lit i) = do return $ VInt i
+interpC :: Env -> Expr -> Value
+interpC env (Lit i) = VInt i
 interpC env (Var name) = case M.lookup name env of
-    Just val -> Right val
+    Just val -> val
     Nothing -> error "Bug: type check failed"
-interpC env (Add e1 e2) = do
-    v1 <- interpC env e1
-    v2 <- interpC env e2
-    add v1 v2
-    where
-        add (VInt x) (VInt y) = Right $ VInt (x+y)
-interpC env e@(Lambda par t e1) = case par of
-    Var name -> Right $ VClosure name e1 env
+interpC env (Add e1 e2) = case (interpC env e1, interpC env e2) of
+    (VInt x, VInt y) -> VInt (x+y)
+    _                -> error "Bug: type check failed"
+interpC env (Lambda par _ e1) = case par of
+    Var name -> VClosure name e1 env
     otherwise -> error "Bug: type check failed"
-interpC env (Apply f e1) = do
-    f' <- interpC env f >>= typeCheck
-    interpC env e1 >>= f'
-    where
-        typeCheck (VClosure name expr env1) = 
-            Right (\par -> interpC (M.insert name par env1) expr)
-        typeCheck _ = error "Bug in the code, type checking failed"
+interpC env (Apply f e1) = case interpC env f of
+    VClosure name expr env1 ->
+        let par = interpC env e1
+        in interpC (M.insert name par env1) expr
+    _ -> error "Bug: type check failed"
 
 
 eval :: String -> IO ()
@@ -167,6 +163,4 @@ eval s = case parse expr s of
     Left err  -> print err
     Right e -> case infer M.empty e of
         Left err -> putStrLn $ showTypeError err
-        otherwise -> case interpC M.empty e of
-            Left err -> putStrLn (showInterpError err)
-            Right v -> putStrLn (showValue v)
+        otherwise -> putStrLn $ showValue $ interpC M.empty e
