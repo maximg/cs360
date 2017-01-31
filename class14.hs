@@ -124,7 +124,7 @@ infer ctx e@(Lambda par t expr) = case par of
         Just tIn -> do
             tOut <- infer (M.insert name tIn ctx) expr
             return $ TyFun tIn tOut
-    otherwise -> Left $ ExpectedIdent expr
+    _ -> Left $ ExpectedIdent expr
 infer ctx e@(Apply e1 e2) = do
     (TyFun tIn tOut) <- infer ctx e1
     check ctx e2 tIn
@@ -150,7 +150,7 @@ interpC env (Add e1 e2) = case (interpC env e1, interpC env e2) of
     _                -> error "Bug: type check failed"
 interpC env (Lambda par _ e1) = case par of
     Var name -> VClosure name e1 env
-    otherwise -> error "Bug: type check failed"
+    _        -> error "Bug: type check failed"
 interpC env (Apply f e1) = case interpC env f of
     VClosure name expr env1 ->
         let par = interpC env e1
@@ -163,4 +163,4 @@ eval s = case parse expr s of
     Left err  -> print err
     Right e -> case infer M.empty e of
         Left err -> putStrLn $ showTypeError err
-        otherwise -> putStrLn $ showValue $ interpC M.empty e
+        _        -> putStrLn $ showValue $ interpC M.empty e
