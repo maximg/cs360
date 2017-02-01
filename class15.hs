@@ -170,3 +170,38 @@ check ctx e ty =
   case ty == ty' of
     False -> Left $ Mismatch e ty ty'
     True  -> Right ()
+
+checkProg :: Ctx -> Prog -> Either TypeError Ctx
+checkProg ctx []     = Right ctx
+checkProg ctx (s:ss) = checkStmt ctx s >>= \ctx' -> checkProg ctx' ss
+
+checkStmt :: Ctx -> Stmt -> Either TypeError Ctx
+checkStmt ctx (Decl ty x)  =
+    case M.lookup x ctx of
+        Just _ -> Left $ DuplicateVar x
+        Nothing -> Right $ M.insert x ty ctx
+checkStmt ctx (Assign x e) =
+    case M.lookup x ctx of
+        Just t -> check ctx e t *> Right ctx
+        Nothing -> Left $ UnboundVar x
+checkStmt ctx (Block ss)   = checkProg ctx ss *> Right ctx
+checkStmt ctx (If e s1 s2) =
+    check ctx e TyBool *>
+    checkStmt ctx s1 *>
+    checkStmt ctx s2 *>
+    Right ctx
+checkStmt ctx (Repeat e body) =
+    check ctx e TyBool *>
+    checkStmt ctx body *>
+    Right ctx
+checkStmt ctx (While e body)  =
+    check ctx e TyBool *>
+    checkStmt ctx body *>
+    Right ctx
+checkStmt ctx (Input v)    =
+    case M.lookup v ctx of
+        Just TyInt -> Right ctx
+        Just _ -> Left $ InputBool v
+        Nothing -> Left $ UnboundVar v
+checkStmt ctx (Output e)   =
+    check ctx e TyInt *> Right ctx
