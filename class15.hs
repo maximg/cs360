@@ -17,7 +17,7 @@ data Type where
   deriving (Show, Eq)
 
 data Stmt where
-  Decl   :: Type -> Var -> Stmt           -- <type> <var>
+  Decl   :: Type -> Var -> Expr -> Stmt   -- <type> <var>
   Assign :: Var  -> Expr -> Stmt          -- <var> ':=' <expr>
   Block  :: Prog -> Stmt                  -- '{' <prog> '}'
   If     :: Expr -> Stmt -> Stmt -> Stmt  -- 'if' <expr> 'then' <stmt> 'else' <stmt>
@@ -109,7 +109,7 @@ parseStmt =
   <|> Input   <$> (reserved "input" *> ident)
   <|> Output  <$> (reserved "output" *> parseExpr)
   <|> Assign  <$> ident <*> (reservedOp ":=" *> parseExpr)
-  <|> Decl    <$> parseType <*> ident
+  <|> Decl    <$> parseType <*> ident <*> (reservedOp ":=" *> parseExpr)
 
 parseType :: Parser Type
 parseType = (TyInt <$ reserved "int") <|> (TyBool <$ reserved "bool")
@@ -177,10 +177,10 @@ checkProg ctx []     = Right ctx
 checkProg ctx (s:ss) = checkStmt ctx s >>= \ctx' -> checkProg ctx' ss
 
 checkStmt :: Ctx -> Stmt -> Either TypeError Ctx
-checkStmt ctx (Decl ty x)  =
+checkStmt ctx (Decl ty x expr)  =
     case M.lookup x ctx of
         Just _ -> Left $ DuplicateVar x
-        Nothing -> Right $ M.insert x ty ctx
+        Nothing -> check ctx expr ty *> (Right $ M.insert x ty ctx)
 checkStmt ctx (Assign x e) =
     case M.lookup x ctx of
         Just t -> check ctx e t *> Right ctx
@@ -256,7 +256,8 @@ initWorld :: String -> World
 initWorld inp = W M.empty (words inp) []
 
 interpStmt :: Stmt -> World -> World
-interpStmt (Decl _ v) (W mem inp outp) = W (M.insert v 0 mem) inp outp
+interpStmt (Decl _ v expr) (W mem inp outp) = W (M.insert v init mem) inp outp
+    where init = interpExpr mem expr
 interpStmt (Assign v e) (W mem inp outp) = W (M.insert v (interpExpr mem e) mem) inp outp
 interpStmt (Block bl) w = interpProg bl w
 interpStmt (If c s1 s2) w@(W mem inp outp) =
@@ -305,7 +306,7 @@ run fileName = do
         Right prog -> case checkProg M.empty prog of
             Left err -> print err
             Right _ -> do
-                let inp = "10"
+                let inp = "5 6"
                 putStrLn $ formatWorld $ interpProg prog (initWorld inp)
 
 run1 :: String -> IO ()

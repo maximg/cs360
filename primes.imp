@@ -1,11 +1,9 @@
-int n;
+int n := 0;
 input n;
-int k;
+int k := 1;
 while !(n < k) {
-	bool isPrime;
-	isPrime := True;
-	int j;
-	j := 2;
+	bool isPrime := True;
+	int j := 2;
 	while !( k / 2 < j) {
 		isPrime := isPrime && !((k / j) * j == k);
 		j := j + 1
