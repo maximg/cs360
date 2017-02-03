@@ -1,0 +1,9 @@
+int i;
+input i;
+int fact;
+fact := i;
+while 1 < i {
+	i := i - 1;
+	fact := fact * i
+};
+output fact

@@ -5,6 +5,7 @@ import           Parsing2
 import qualified Data.Map           as M
 import           Text.Read          (readMaybe)
 import           System.Environment (getArgs)
+import           System.IO
 
 type Var = String
 
@@ -191,7 +192,7 @@ checkStmt ctx (If e s1 s2) =
     checkStmt ctx s2 *>
     Right ctx
 checkStmt ctx (Repeat e body) =
-    check ctx e TyBool *>
+    check ctx e TyInt *>
     checkStmt ctx body *>
     Right ctx
 checkStmt ctx (While e body)  =
@@ -205,3 +206,124 @@ checkStmt ctx (Input v)    =
         Nothing -> Left $ UnboundVar v
 checkStmt ctx (Output e)   =
     check ctx e TyInt *> Right ctx
+
+
+type Value = Integer
+type Mem = M.Map Var Value
+
+interpExpr :: Mem -> Expr -> Value
+interpExpr _ (EInt i)       = i
+interpExpr _ (EBool b)      = fromBool b
+interpExpr m (EVar x)       =
+  case M.lookup x m of
+    Just v  -> v
+    Nothing -> error $ "Impossible! Uninitialized variable " ++ x
+interpExpr m (EBin b e1 e2) = interpBOp b (interpExpr m e1) (interpExpr m e2)
+interpExpr m (EUn  u e)     = interpUOp u (interpExpr m e )
+
+interpUOp :: UOp -> Value -> Value
+interpUOp Neg v = -v
+interpUOp Not v = 1-v
+
+interpBOp :: BOp -> Value -> Value -> Value
+interpBOp Add    = (+)
+interpBOp Sub    = (-)
+interpBOp Mul    = (*)
+interpBOp Div    = div
+interpBOp And    = (*)
+interpBOp Or     = \v1 v2 -> min 1 (v1 + v2)
+interpBOp Equals = \v1 v2 -> fromBool (v1 == v2)
+interpBOp Less   = \v1 v2 -> fromBool (v1 <  v2)
+
+fromBool :: Bool -> Value
+fromBool False = 0
+fromBool True  = 1
+
+toBool :: Value -> Bool
+toBool 0 = False
+toBool _ = True
+
+data World where
+  W  :: Mem       -- Current state of memory
+     -> [String]  -- Strings typed by the user, waiting to be read by 'input'
+     -> [String]  -- Strings produced by 'output' (newest first)
+     -> World
+  Error :: World  -- Something went wrong
+  deriving Show
+
+-- An initial world state, given user input
+initWorld :: String -> World
+initWorld inp = W M.empty (words inp) []
+
+interpStmt :: Stmt -> World -> World
+interpStmt (Decl _ v) (W mem inp outp) = W (M.insert v 0 mem) inp outp
+interpStmt (Assign v e) (W mem inp outp) = W (M.insert v (interpExpr mem e) mem) inp outp
+interpStmt (Block bl) w = interpProg bl w
+interpStmt (If c s1 s2) w@(W mem inp outp) =
+    if toBool (interpExpr mem c) then interpStmt s1 w
+                                 else interpStmt s2 w
+interpStmt (Repeat cnt s1) w@(W mem _ _) = interpRepeat (interpExpr mem cnt) s1 w
+interpStmt (While c s1) w  = interpWhile c s1 w
+interpStmt (Input v) (W _ [] _) = Error
+interpStmt (Input v) (W mem (y:ys) outp) =
+    case readMaybe y :: Maybe Integer of
+        Just x -> W (M.insert v x mem) ys outp
+        Nothing -> Error
+interpStmt (Output e) (W mem inp outp) = W mem inp ((show $ interpExpr mem e):outp)
+interpStmt _ Error = Error
+
+
+interpRepeat :: Integer -> Stmt -> World -> World
+interpRepeat 0 _ w = w
+interpRepeat n st w = interpRepeat (n-1) st (interpStmt st w)
+
+interpWhile :: Expr -> Stmt -> World -> World
+interpWhile cond st w@(W mem _ _) =
+    if interpExpr mem cond == 0  then w
+                                 else interpWhile cond st $
+                                      interpStmt st w
+
+interpProg :: Prog -> World -> World
+interpProg prog w = foldl (flip interpStmt) w prog
+
+
+formatWorld :: World -> String
+formatWorld (W m _ o) = unlines $
+    reverse o ++
+    ["===================="] ++
+    map formatVar (M.assocs m)
+formatWorld Error = "Error"
+
+formatVar :: (String, Value) -> String
+formatVar (k,v) = k ++ " -> " ++ show v
+
+run :: String -> IO ()
+run fileName = do
+    contents <- readFile fileName  
+    case parse impParser contents of
+        Left err -> print err
+        Right prog -> case checkProg M.empty prog of
+            Left err -> print err
+            Right _ -> do
+                let inp = "10"
+                putStrLn $ formatWorld $ interpProg prog (initWorld inp)
+
+run1 :: String -> IO ()
+run1 fileName = do
+    contents <- readFile fileName  
+    print$  parse impParser contents
+
+run2 :: String -> IO ()
+run2 fileName = do
+    contents <- readFile fileName  
+    case parse impParser contents of
+        Left err -> print err
+        Right prog -> print $ checkProg M.empty prog
+
+
+main :: IO ()
+main = do
+  args <- getArgs
+  case args of
+    []     -> putStrLn "Please provide a file name."
+    (fn:_) -> run2 fn

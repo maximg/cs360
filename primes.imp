@@ -1,0 +1,17 @@
+int n;
+input n;
+int k;
+while !(n < k) {
+	bool isPrime;
+	isPrime := True;
+	int j;
+	j := 2;
+	while !( k / 2 < j) {
+		isPrime := isPrime && !((k / j) * j == k);
+		j := j + 1
+	};
+	if isPrime then {
+		output k
+	} else {};
+	k := k + 1
+}

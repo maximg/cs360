@@ -1,0 +1,12 @@
+int a; int b;
+input a;
+input b;
+while !(a == b) {
+	if (a < b) then {
+		b := b - a
+	}
+	else {
+		a := a - b
+	}
+};
+output a
