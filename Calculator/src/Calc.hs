@@ -47,7 +47,7 @@ data Arith where
   Div :: Arith -> Arith -> Arith
   Exp :: Arith -> Arith -> Arith
   Neg :: Arith -> Arith
-  -- As  :: Arith -> Units -> Arith
+  As  :: Arith -> Units -> Arith
   deriving (Show)
 
 lexer :: TokenParser u
@@ -70,26 +70,32 @@ whiteSpace = getWhiteSpace lexer
 
 parseArithAtom :: Parser Arith
 parseArithAtom =
-    try(parseDimValue) <|>
-    (Lit <$> (Number <$> double)) <|> parens parseArith
+        try parseDimValue
+    <|> (Lit <$> (Number <$> double))
+    <|> try parseCast
+    <|> parens parseArith
+
 
 parseDimValue :: Parser Arith
 parseDimValue = Lit <$> (Length <$> double <*> parseUnits)
 
+parseCast :: Parser Arith
+parseCast = As <$> (parens parseArith) <* reservedOp "as" <*> parseUnits
+
 parseUnits :: Parser Units
 parseUnits =
-    (Miles      <$ reservedOp "miles") <|>
-    (Miles      <$ reservedOp "mile")  <|>
-    (Miles      <$ reservedOp "mi")    <|>
+    (Miles      <$ reservedOp "miles")   <|>
+    (Miles      <$ reservedOp "mile")    <|>
+    (Miles      <$ reservedOp "mi")      <|>
     (Meters     <$ reservedOp "meters")  <|>
     (Meters     <$ reservedOp "meter")   <|>
     (Meters     <$ reservedOp "m")       <|>
-    (Kilometers <$ reservedOp "km")   <|>
-    (Feet       <$ reservedOp "foot") <|>
-    (Feet       <$ reservedOp "feet") <|>
-    (Feet       <$ reservedOp "ft")   <|>
-    (Inches     <$ reservedOp "inches") <|>
-    (Inches     <$ reservedOp "inch")   <|>
+    (Kilometers <$ reservedOp "km")      <|>
+    (Feet       <$ reservedOp "foot")    <|>
+    (Feet       <$ reservedOp "feet")    <|>
+    (Feet       <$ reservedOp "ft")      <|>
+    (Inches     <$ reservedOp "inches")  <|>
+    (Inches     <$ reservedOp "inch")    <|>
     (Inches     <$ reservedOp "in")
 
 parseArith :: Parser Arith
@@ -109,17 +115,21 @@ arith = whiteSpace *> parseArith <* eof
 
 
 showArith :: Arith -> String
-showArith (Lit (Number i)) = show i
-showArith (Lit (Length l u)) = show l ++ " " ++ showUnits u
+showArith (Lit v) = showValue v
 showArith (Add e1 e2) = showOp "+" e1 e2
 showArith (Sub e1 e2) = showOp "-" e1 e2
 showArith (Mul e1 e2) = showOp "*" e1 e2
 showArith (Div e1 e2) = showOp "/" e1 e2
 showArith (Exp e1 e2) = showOp "^" e1 e2
 showArith (Neg e1)    = "-" ++ showArith e1
+showArith (As  e1 u)  = "(" ++ showArith e1 ++ ") as " ++ showUnits u
 
 showOp :: String -> Arith -> Arith -> String
 showOp op e1 e2 = showArith e1 ++ " " ++ op ++ " " ++ showArith e2
+
+showValue :: Value -> String
+showValue (Number i) = show i
+showValue (Length l u) = show l ++ " " ++ showUnits u
 
 showUnits :: Units -> String
 showUnits Meters     = "m"
@@ -141,6 +151,7 @@ data InferError where
     MaxOneUnit :: InferError
     BadDivisorUnits :: InferError
     BadExpUnits :: InferError
+    InvalidCast :: InferError
     deriving (Show)
 
 showInferError :: InferError -> String
@@ -148,15 +159,20 @@ showInferError MismatchedUnits = "Expression requires same units on both terms"
 showInferError MaxOneUnit = "Not more than one term can be length"
 showInferError BadDivisorUnits = "Only length can be divided by length"
 showInferError BadExpUnits = "Exponent can not have units"
+showInferError InvalidCast = "Cannot cast value without units"
 
 inferUnits :: Arith -> Either InferError (Maybe Units)
 inferUnits (Lit (Number x)) = Right Nothing
-inferUnits (Lit (Length _ u)) = Right (Just Meters)
+inferUnits (Lit (Length _ u)) = Right (Just u)
 inferUnits (Add e1 e2) = inferTerms e1 e2 addSubUnits
 inferUnits (Sub e1 e2) = inferTerms e1 e2 addSubUnits
 inferUnits (Mul e1 e2) = inferTerms e1 e2 mulUnits
 inferUnits (Div e1 e2) = inferTerms e1 e2 divUnits
 inferUnits (Exp e1 e2) = inferTerms e1 e2 expUnits
+inferUnits (As  e1 u)  = inferUnits e1 >>= toUnits
+    where
+        toUnits Nothing = Left InvalidCast
+        toUnits _       = Right (Just u)
 
 inferTerms :: Arith -> Arith -> (Maybe Units -> Maybe Units -> Either InferError (Maybe Units)) -> Either InferError (Maybe Units)
 inferTerms e1 e2 f = do
@@ -165,17 +181,17 @@ inferTerms e1 e2 f = do
     f u1 u2
 
 addSubUnits, mulUnits, divUnits, expUnits :: Maybe Units -> Maybe Units -> Either InferError (Maybe Units)
-addSubUnits (Just _) (Just _) = Right (Just Meters)
+addSubUnits (Just u) (Just _) = Right (Just u)
 addSubUnits Nothing  Nothing  = Right Nothing
 addSubUnits _        _        = Left MismatchedUnits
 
-mulUnits (Just _) Nothing  = Right (Just Meters)
-mulUnits Nothing  (Just _) = Right (Just Meters)
+mulUnits (Just u) Nothing  = Right (Just u)
+mulUnits Nothing  (Just u) = Right (Just u)
 mulUnits Nothing  Nothing  = Right Nothing
 mulUnits _        _        = Left MaxOneUnit
 
 divUnits (Just _) (Just _) = Right Nothing
-divUnits (Just _) Nothing  = Right (Just Meters)
+divUnits (Just u) Nothing  = Right (Just u)
 divUnits Nothing  Nothing  = Right Nothing
 divUnits _        _        = Left BadDivisorUnits
 
@@ -193,6 +209,13 @@ toNumber (Length l Miles)      = l * 1609.344
 toNumber (Length l Feet)       = l * 0.3048
 toNumber (Length l Inches)     = l * 0.0254
 
+toValue :: Double -> Maybe Units -> Value
+toValue x Nothing           = Number x
+toValue l (Just Meters)     = Length l              Meters
+toValue l (Just Kilometers) = Length (l / 1000.0)   Kilometers
+toValue l (Just Miles)      = Length (l / 1609.344) Miles
+toValue l (Just Feet)       = Length (l / 0.3048)   Feet
+toValue l (Just Inches)     = Length (l / 0.0254)   Inches
 
 interpArith :: Arith -> Either InterpError Double
 interpArith (Lit i) = Right $ toNumber i
@@ -205,6 +228,7 @@ interpArith (Div e1 e2) = do
     if y == 0.0 then Left DivisionByZero
                 else interpArith e1 >>= (\x -> Right (x / y))
 interpArith (Neg e1)    = (\x -> -x) <$> interpArith e1
+interpArith (As e1 _)   = interpArith e1
 
 interpOp :: (Double -> Double -> Double) -> Arith -> Arith -> Either InterpError Double
 interpOp op e1 e2 = op <$> interpArith e1 <*> interpArith e2
@@ -215,10 +239,9 @@ calc input = case parse arith input of
     Left err -> show err
     Right expr -> case inferUnits expr of
         Left inferErr -> showInferError inferErr
-        Right units -> showArith expr ++ "\n" ++ interp expr ++ " " ++ showUnits' units
-            where
-                interp expr = case interpArith expr of
-                    Left interpErr -> showInterpError interpErr
-                    Right x ->  "  = " ++ (show x)
-                showUnits' Nothing = ""
-                showUnits' (Just l) = showUnits l
+        Right units ->  showArith expr ++ "\n" ++
+                        showResult (showAs units <$> interpArith expr)
+        where
+            showResult (Left interpErr) = showInterpError interpErr
+            showResult (Right str)      = "  = " ++ str
+            showAs u x = showValue (toValue x u)
