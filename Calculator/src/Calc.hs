@@ -78,10 +78,18 @@ parseDimValue = Lit <$> (Length <$> double <*> parseUnits)
 
 parseUnits :: Parser Units
 parseUnits =
-    (Miles      <$ reservedOp "mi") <|>
-    (Meters     <$ reservedOp "m")  <|>
-    (Kilometers <$ reservedOp "km") <|>
-    (Feet       <$ reservedOp "ft") <|>
+    (Miles      <$ reservedOp "miles") <|>
+    (Miles      <$ reservedOp "mile")  <|>
+    (Miles      <$ reservedOp "mi")    <|>
+    (Meters     <$ reservedOp "meters")  <|>
+    (Meters     <$ reservedOp "meter")   <|>
+    (Meters     <$ reservedOp "m")       <|>
+    (Kilometers <$ reservedOp "km")   <|>
+    (Feet       <$ reservedOp "foot") <|>
+    (Feet       <$ reservedOp "feet") <|>
+    (Feet       <$ reservedOp "ft")   <|>
+    (Inches     <$ reservedOp "inches") <|>
+    (Inches     <$ reservedOp "inch")   <|>
     (Inches     <$ reservedOp "in")
 
 parseArith :: Parser Arith
