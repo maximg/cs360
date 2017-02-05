@@ -156,24 +156,21 @@ inferTerms e1 e2 f = do
     u2 <- inferUnits e2
     f u1 u2
 
-addSubUnits :: Maybe Units -> Maybe Units -> Either InferError (Maybe Units)
+addSubUnits, mulUnits, divUnits, expUnits :: Maybe Units -> Maybe Units -> Either InferError (Maybe Units)
 addSubUnits (Just _) (Just _) = Right (Just Meters)
 addSubUnits Nothing  Nothing  = Right Nothing
 addSubUnits _        _        = Left MismatchedUnits
 
-mulUnits :: Maybe Units -> Maybe Units -> Either InferError (Maybe Units)
 mulUnits (Just _) Nothing  = Right (Just Meters)
 mulUnits Nothing  (Just _) = Right (Just Meters)
 mulUnits Nothing  Nothing  = Right Nothing
 mulUnits _        _        = Left MaxOneUnit
 
-divUnits :: Maybe Units -> Maybe Units -> Either InferError (Maybe Units)
 divUnits (Just _) (Just _) = Right Nothing
 divUnits (Just _) Nothing  = Right (Just Meters)
 divUnits Nothing  Nothing  = Right Nothing
 divUnits _        _        = Left BadDivisorUnits
 
-expUnits :: Maybe Units -> Maybe Units -> Either InferError (Maybe Units)
 expUnits Nothing  Nothing  = Right Nothing
 expUnits _        _        = Left BadExpUnits
 
