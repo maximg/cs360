@@ -37,10 +37,15 @@ showInterpError DummyIntErr = "undefined"
 
 interpQuilt :: Quilt -> Either InterpError QuiltFun
 interpQuilt (ColorLit c) = Right $ \x y -> c
+interpQuilt (Add e1 e2) = addFn <$> interpQuilt e1 <*> interpQuilt e2
+    where
+        addFn f1 f2 = \x y -> vAdd (f1 x y) (f2 x y)
+        vAdd = zipWith (+)
 
 -- Parser
 data Quilt where
     ColorLit :: Color -> Quilt
+    Add :: Quilt -> Quilt -> Quilt
     deriving (Show)
 
 toColor :: String -> Color
@@ -69,10 +74,29 @@ whiteSpace :: Parser ()
 whiteSpace = getWhiteSpace lexer
 
 parseColorLit :: Parser Quilt
-parseColorLit = (ColorLit . toColor) <$> identifier
+parseColorLit =
+        makeColorLitParser "red"
+    <|> makeColorLitParser "green"
+    <|> makeColorLitParser "blue"
+    <|> makeColorLitParser "black"
+    <|> makeColorLitParser "white"
+    <|> makeColorLitParser "yellow"
+    <|> makeColorLitParser "orange"
+    <|> makeColorLitParser "gray"
+
+makeColorLitParser :: String -> Parser Quilt
+makeColorLitParser s = (ColorLit $ toColor s) <$ reservedOp s 
+
+parseQuiltAtom :: Parser Quilt
+parseQuiltAtom = parseColorLit
 
 parseQuilt :: Parser Quilt
-parseQuilt = parseColorLit
+parseQuilt = buildExpressionParser table parseQuiltAtom
+  where
+    table = [ [ Infix (Add <$ reservedOp "+") AssocLeft
+              ]  
+            ]
+
 
 quilt :: Parser Quilt
 quilt = whiteSpace *> parseQuilt <* eof
