@@ -143,18 +143,11 @@ showUnits Feet       = "ft"
 showUnits Inches     = "in"
 
 
-data InterpError where
-    DivisionByZero :: InterpError
-    deriving (Show)
-
-showInterpError :: InterpError -> String
-showInterpError DivisionByZero = "Division by zero"
-
 data InferError where
     MismatchedUnits :: InferError
     MaxOneUnit :: InferError
     BadDivisorUnits :: InferError
-    BadExpUnits :: InferError
+    BadExpTypes :: InferError
     InvalidCast :: InferError
     deriving (Show)
 
@@ -162,20 +155,20 @@ showInferError :: InferError -> String
 showInferError MismatchedUnits = "Expression requires same units on both terms"
 showInferError MaxOneUnit = "Not more than one term can be length"
 showInferError BadDivisorUnits = "Only length can be divided by length"
-showInferError BadExpUnits = "Exponent can not have units"
+showInferError BadExpTypes = "Exponent can not have units"
 showInferError InvalidCast = "Cannot cast value without units"
 
 inferType :: Arith -> Either InferError Type
 inferType (Lit (Value _ t)) = Right t
-inferType (Add e1 e2) = inferTerms e1 e2 checkAddSub
-inferType (Sub e1 e2) = inferTerms e1 e2 checkAddSub
-inferType (Mul e1 e2) = inferTerms e1 e2 mulUnits
-inferType (Div e1 e2) = inferTerms e1 e2 divUnits
-inferType (Exp e1 e2) = inferTerms e1 e2 expUnits
-inferType (As  e1 u)  = inferType e1 >>= checkCast
+inferType (Add e1 e2) = inferTerms e1 e2 inferAddSub
+inferType (Sub e1 e2) = inferTerms e1 e2 inferAddSub
+inferType (Mul e1 e2) = inferTerms e1 e2 inferMul
+inferType (Div e1 e2) = inferTerms e1 e2 inferDiv
+inferType (Exp e1 e2) = inferTerms e1 e2 inferExp
+inferType (As  e1 u)  = inferType e1 >>= inferCast
     where
-        checkCast Number = Left InvalidCast
-        checkCast _      = Right (Length u)
+        inferCast Number = Left InvalidCast
+        inferCast _      = Right (Length u)
 
 inferTerms :: Arith -> Arith -> (Type -> Type -> Either InferError Type) -> Either InferError Type
 inferTerms e1 e2 f = do
@@ -183,28 +176,35 @@ inferTerms e1 e2 f = do
     u2 <- inferType e2
     f u1 u2
 
-checkAddSub, mulUnits, divUnits, expUnits :: Type -> Type -> Either InferError Type
+inferAddSub, inferMul, inferDiv, inferExp :: Type -> Type -> Either InferError Type
 
-checkAddSub (Length u) (Length _) = Right (Length u)
-checkAddSub Number     Number     = Right Number
-checkAddSub _          _          = Left MismatchedUnits
+inferAddSub (Length u) (Length _) = Right (Length u)
+inferAddSub Number     Number     = Right Number
+inferAddSub _          _          = Left MismatchedUnits
 
-mulUnits (Length u) Number     = Right (Length u)
-mulUnits Number     (Length u) = Right (Length u)
-mulUnits Number     Number     = Right Number
-mulUnits _          _          = Left MaxOneUnit
+inferMul (Length u) Number     = Right (Length u)
+inferMul Number     (Length u) = Right (Length u)
+inferMul Number     Number     = Right Number
+inferMul _          _          = Left MaxOneUnit
 
-divUnits (Length _) (Length _) = Right Number
-divUnits (Length u) Number     = Right (Length u)
-divUnits Number     Number     = Right Number
-divUnits _          _          = Left BadDivisorUnits
+inferDiv (Length _) (Length _) = Right Number
+inferDiv (Length u) Number     = Right (Length u)
+inferDiv Number     Number     = Right Number
+inferDiv _          _          = Left BadDivisorUnits
 
-expUnits Number  Number  = Right Number
-expUnits _       _       = Left BadExpUnits
+inferExp Number  Number  = Right Number
+inferExp _       _       = Left BadExpTypes
 
 
 -- Calculations are done in typeless doubles,
 -- typed values are converted to base units (if any)
+
+data InterpError where
+    DivisionByZero :: InterpError
+    deriving (Show)
+
+showInterpError :: InterpError -> String
+showInterpError DivisionByZero = "Division by zero"
 
 inBaseUnits :: Units -> Double
 inBaseUnits Meters     =    1.0
