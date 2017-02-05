@@ -37,6 +37,8 @@ showInterpError DummyIntErr = "undefined"
 
 interpQuilt :: Quilt -> Either InterpError QuiltFun
 interpQuilt (ColorLit c) = Right $ \x y -> c
+interpQuilt (Param CoordX) = Right $ \x _ -> [x,x,x]
+interpQuilt (Param CoordY) = Right $ \_ y -> [y,y,y]
 interpQuilt (Add e1 e2) = addFn <$> interpQuilt e1 <*> interpQuilt e2
     where
         addFn f1 f2 = \x y -> vAdd (f1 x y) (f2 x y)
@@ -46,6 +48,12 @@ interpQuilt (Add e1 e2) = addFn <$> interpQuilt e1 <*> interpQuilt e2
 data Quilt where
     ColorLit :: Color -> Quilt
     Add :: Quilt -> Quilt -> Quilt
+    Param :: Coord -> Quilt
+    deriving (Show)
+
+data Coord where
+    CoordX :: Coord
+    CoordY :: Coord
     deriving (Show)
 
 toColor :: String -> Color
@@ -87,8 +95,15 @@ parseColorLit =
 makeColorLitParser :: String -> Parser Quilt
 makeColorLitParser s = (ColorLit $ toColor s) <$ reservedOp s 
 
+parseCoord :: Parser Quilt
+parseCoord =
+        (Param CoordX) <$ reservedOp "x"
+    <|> (Param CoordY) <$ reservedOp "y"
+
 parseQuiltAtom :: Parser Quilt
-parseQuiltAtom = parseColorLit
+parseQuiltAtom =
+        parseColorLit
+    <|> parseCoord
 
 parseQuilt :: Parser Quilt
 parseQuilt = buildExpressionParser table parseQuiltAtom
