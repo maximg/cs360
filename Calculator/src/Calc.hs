@@ -203,23 +203,23 @@ expUnits Number  Number  = Right Number
 expUnits _       _       = Left BadExpUnits
 
 
--- Calculations are done in dimensionless numbers,
--- lengths are converted to meters
+-- Calculations are done in typeless doubles,
+-- typed values are converted to base units (if any)
+
+inBaseUnits :: Units -> Double
+inBaseUnits Meters     =    1.0
+inBaseUnits Kilometers = 1000.0
+inBaseUnits Miles      = 1609.344
+inBaseUnits Feet       =    0.3048
+inBaseUnits Inches     =    0.0254
+
 toNumber :: Value -> Double
-toNumber (Value x Number)              = x
-toNumber (Value x (Length Meters))     = x
-toNumber (Value x (Length Kilometers)) = x * 1000.0
-toNumber (Value x (Length Miles))      = x * 1609.344
-toNumber (Value x (Length Feet))       = x * 0.3048
-toNumber (Value x (Length Inches))     = x * 0.0254
+toNumber (Value x Number)     = x
+toNumber (Value x (Length u)) = x * inBaseUnits u
 
 toValue :: Double -> Type -> Value
-toValue x Number              = Value x Number
-toValue l (Length Meters)     = Value l              (Length Meters)
-toValue l (Length Kilometers) = Value (l / 1000.0)   (Length Kilometers)
-toValue l (Length Miles)      = Value (l / 1609.344) (Length Miles)
-toValue l (Length Feet)       = Value (l / 0.3048)   (Length Feet)
-toValue l (Length Inches)     = Value (l / 0.0254)   (Length Inches)
+toValue x Number     = Value x Number
+toValue l (Length u) = Value (l / (inBaseUnits u)) (Length u)
 
 interpArith :: Arith -> Either InterpError Double
 interpArith (Lit i) = Right $ toNumber i
