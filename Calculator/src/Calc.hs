@@ -34,9 +34,13 @@ data Units where
     Inches :: Units
     deriving (Show)
 
+data Type where
+    Number :: Type
+    Length :: Units -> Type
+    deriving (Show)
+
 data Value where
-    Length :: Double -> Units -> Value
-    Number :: Double -> Value
+    Value :: Double -> Type -> Value
     deriving (Show)
 
 data Arith where
@@ -70,14 +74,14 @@ whiteSpace = getWhiteSpace lexer
 
 parseArithAtom :: Parser Arith
 parseArithAtom =
-        try parseDimValue
-    <|> (Lit <$> (Number <$> double))
+        try parseLength
+    <|> (Lit <$> (Value <$> double <*> pure Number))
     <|> try parseCast
     <|> parens parseArith
 
 
-parseDimValue :: Parser Arith
-parseDimValue = Lit <$> (Length <$> double <*> parseUnits)
+parseLength :: Parser Arith
+parseLength = Lit <$> (Value <$> double <*> (Length <$> parseUnits))
 
 parseCast :: Parser Arith
 parseCast = As <$> (parens parseArith) <* reservedOp "as" <*> parseUnits
@@ -128,8 +132,8 @@ showOp :: String -> Arith -> Arith -> String
 showOp op e1 e2 = showArith e1 ++ " " ++ op ++ " " ++ showArith e2
 
 showValue :: Value -> String
-showValue (Number i) = show i
-showValue (Length l u) = show l ++ " " ++ showUnits u
+showValue (Value x Number)     = show x
+showValue (Value x (Length u)) = show x ++ " " ++ showUnits u
 
 showUnits :: Units -> String
 showUnits Meters     = "m"
@@ -161,61 +165,61 @@ showInferError BadDivisorUnits = "Only length can be divided by length"
 showInferError BadExpUnits = "Exponent can not have units"
 showInferError InvalidCast = "Cannot cast value without units"
 
-inferUnits :: Arith -> Either InferError (Maybe Units)
-inferUnits (Lit (Number x)) = Right Nothing
-inferUnits (Lit (Length _ u)) = Right (Just u)
-inferUnits (Add e1 e2) = inferTerms e1 e2 addSubUnits
-inferUnits (Sub e1 e2) = inferTerms e1 e2 addSubUnits
-inferUnits (Mul e1 e2) = inferTerms e1 e2 mulUnits
-inferUnits (Div e1 e2) = inferTerms e1 e2 divUnits
-inferUnits (Exp e1 e2) = inferTerms e1 e2 expUnits
-inferUnits (As  e1 u)  = inferUnits e1 >>= toUnits
+inferType :: Arith -> Either InferError Type
+inferType (Lit (Value _ t)) = Right t
+inferType (Add e1 e2) = inferTerms e1 e2 checkAddSub
+inferType (Sub e1 e2) = inferTerms e1 e2 checkAddSub
+inferType (Mul e1 e2) = inferTerms e1 e2 mulUnits
+inferType (Div e1 e2) = inferTerms e1 e2 divUnits
+inferType (Exp e1 e2) = inferTerms e1 e2 expUnits
+inferType (As  e1 u)  = inferType e1 >>= checkCast
     where
-        toUnits Nothing = Left InvalidCast
-        toUnits _       = Right (Just u)
+        checkCast Number = Left InvalidCast
+        checkCast _      = Right (Length u)
 
-inferTerms :: Arith -> Arith -> (Maybe Units -> Maybe Units -> Either InferError (Maybe Units)) -> Either InferError (Maybe Units)
+inferTerms :: Arith -> Arith -> (Type -> Type -> Either InferError Type) -> Either InferError Type
 inferTerms e1 e2 f = do
-    u1 <- inferUnits e1
-    u2 <- inferUnits e2
+    u1 <- inferType e1
+    u2 <- inferType e2
     f u1 u2
 
-addSubUnits, mulUnits, divUnits, expUnits :: Maybe Units -> Maybe Units -> Either InferError (Maybe Units)
-addSubUnits (Just u) (Just _) = Right (Just u)
-addSubUnits Nothing  Nothing  = Right Nothing
-addSubUnits _        _        = Left MismatchedUnits
+checkAddSub, mulUnits, divUnits, expUnits :: Type -> Type -> Either InferError Type
 
-mulUnits (Just u) Nothing  = Right (Just u)
-mulUnits Nothing  (Just u) = Right (Just u)
-mulUnits Nothing  Nothing  = Right Nothing
-mulUnits _        _        = Left MaxOneUnit
+checkAddSub (Length u) (Length _) = Right (Length u)
+checkAddSub Number     Number     = Right Number
+checkAddSub _          _          = Left MismatchedUnits
 
-divUnits (Just _) (Just _) = Right Nothing
-divUnits (Just u) Nothing  = Right (Just u)
-divUnits Nothing  Nothing  = Right Nothing
-divUnits _        _        = Left BadDivisorUnits
+mulUnits (Length u) Number     = Right (Length u)
+mulUnits Number     (Length u) = Right (Length u)
+mulUnits Number     Number     = Right Number
+mulUnits _          _          = Left MaxOneUnit
 
-expUnits Nothing  Nothing  = Right Nothing
-expUnits _        _        = Left BadExpUnits
+divUnits (Length _) (Length _) = Right Number
+divUnits (Length u) Number     = Right (Length u)
+divUnits Number     Number     = Right Number
+divUnits _          _          = Left BadDivisorUnits
+
+expUnits Number  Number  = Right Number
+expUnits _       _       = Left BadExpUnits
 
 
 -- Calculations are done in dimensionless numbers,
 -- lengths are converted to meters
 toNumber :: Value -> Double
-toNumber (Number x)            = x
-toNumber (Length l Meters)     = l
-toNumber (Length l Kilometers) = l * 1000.0
-toNumber (Length l Miles)      = l * 1609.344
-toNumber (Length l Feet)       = l * 0.3048
-toNumber (Length l Inches)     = l * 0.0254
+toNumber (Value x Number)              = x
+toNumber (Value x (Length Meters))     = x
+toNumber (Value x (Length Kilometers)) = x * 1000.0
+toNumber (Value x (Length Miles))      = x * 1609.344
+toNumber (Value x (Length Feet))       = x * 0.3048
+toNumber (Value x (Length Inches))     = x * 0.0254
 
-toValue :: Double -> Maybe Units -> Value
-toValue x Nothing           = Number x
-toValue l (Just Meters)     = Length l              Meters
-toValue l (Just Kilometers) = Length (l / 1000.0)   Kilometers
-toValue l (Just Miles)      = Length (l / 1609.344) Miles
-toValue l (Just Feet)       = Length (l / 0.3048)   Feet
-toValue l (Just Inches)     = Length (l / 0.0254)   Inches
+toValue :: Double -> Type -> Value
+toValue x Number              = Value x Number
+toValue l (Length Meters)     = Value l              (Length Meters)
+toValue l (Length Kilometers) = Value (l / 1000.0)   (Length Kilometers)
+toValue l (Length Miles)      = Value (l / 1609.344) (Length Miles)
+toValue l (Length Feet)       = Value (l / 0.3048)   (Length Feet)
+toValue l (Length Inches)     = Value (l / 0.0254)   (Length Inches)
 
 interpArith :: Arith -> Either InterpError Double
 interpArith (Lit i) = Right $ toNumber i
@@ -237,7 +241,7 @@ interpOp op e1 e2 = op <$> interpArith e1 <*> interpArith e2
 calc :: String -> String
 calc input = case parse arith input of
     Left err -> show err
-    Right expr -> case inferUnits expr of
+    Right expr -> case inferType expr of
         Left inferErr -> showInferError inferErr
         Right units ->  showArith expr ++ "\n" ++
                         showResult (showAs units <$> interpArith expr)
