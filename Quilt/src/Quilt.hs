@@ -29,6 +29,91 @@ data Coord where
     CoordY :: Coord
     deriving (Show)
 
+
+{- Parser
+ -}
+
+toColor :: String -> Color
+toColor "red"    = [1,   0,   0]
+toColor "green"  = [0,   0.5, 0]
+toColor "blue"   = [0,   0,   1]
+toColor "black"  = [0,   0,   0]
+toColor "white"  = [1,   1,   1]
+toColor "yellow" = [1,   1,   0]
+toColor "orange" = [1,   0.6, 0]
+toColor "gray"   = [0.5, 0.5, 0.5]
+
+lexer :: TokenParser u
+lexer = makeTokenParser emptyDef
+
+parens :: Parser a -> Parser a
+parens = getParens lexer
+
+identifier :: Parser String
+identifier = getIdentifier lexer
+
+reservedOp :: String -> Parser ()
+reservedOp = getReservedOp lexer
+
+whiteSpace :: Parser ()
+whiteSpace = getWhiteSpace lexer
+
+double :: Parser Double
+double     = toDouble <$> getNaturalOrFloat lexer
+    where
+        toDouble (Left i) = fromIntegral i
+        toDouble (Right f) = f
+
+parseColorLit :: Parser Quilt
+parseColorLit =
+        makeColorLitParser "red"
+    <|> makeColorLitParser "green"
+    <|> makeColorLitParser "blue"
+    <|> makeColorLitParser "black"
+    <|> makeColorLitParser "white"
+    <|> makeColorLitParser "yellow"
+    <|> makeColorLitParser "orange"
+    <|> makeColorLitParser "gray"
+
+makeColorLitParser :: String -> Parser Quilt
+makeColorLitParser s = (ColorLit $ toColor s) <$ reservedOp s
+
+parseCoord :: Parser Quilt
+parseCoord =
+        (Param CoordX) <$ reservedOp "x"
+    <|> (Param CoordY) <$ reservedOp "y"
+
+parseTriple :: Parser Quilt
+parseTriple =
+    Triple  <$  reservedOp "["
+            <*> parseQuilt
+            <*  reservedOp ","
+            <*> parseQuilt
+            <*  reservedOp ","
+            <*> parseQuilt
+            <*  reservedOp "]"
+
+parseNumber :: Parser Quilt
+parseNumber = NumberLit <$> double
+
+parseQuiltAtom :: Parser Quilt
+parseQuiltAtom =
+        parseColorLit
+    <|> parseCoord
+    <|> parseTriple
+    <|> parseNumber
+
+parseQuilt :: Parser Quilt
+parseQuilt = buildExpressionParser table parseQuiltAtom
+  where
+    table = [ [ Infix (Add <$ reservedOp "+") AssocLeft
+              ]
+            ]
+
+quilt :: Parser Quilt
+quilt = whiteSpace *> parseQuilt <* eof
+
+
 {- Type check
  -}
 
@@ -124,89 +209,6 @@ interpQuilt (Add e1 e2) = addFn <$> interpQuilt e1 <*> interpQuilt e2
         addFn f1 f2 = \x y -> vAdd (f1 x y) (f2 x y)
         vAdd = zipWith (+)
 
-
-{- Parser
- -}
-
-toColor :: String -> Color
-toColor "red"    = [1,   0,   0]
-toColor "green"  = [0,   0.5, 0]
-toColor "blue"   = [0,   0,   1]
-toColor "black"  = [0,   0,   0]
-toColor "white"  = [1,   1,   1]
-toColor "yellow" = [1,   1,   0]
-toColor "orange" = [1,   0.6, 0]
-toColor "gray"   = [0.5, 0.5, 0.5]
-
-lexer :: TokenParser u
-lexer = makeTokenParser emptyDef
-
-parens :: Parser a -> Parser a
-parens = getParens lexer
-
-identifier :: Parser String
-identifier = getIdentifier lexer
-
-reservedOp :: String -> Parser ()
-reservedOp = getReservedOp lexer
-
-whiteSpace :: Parser ()
-whiteSpace = getWhiteSpace lexer
-
-double :: Parser Double
-double     = toDouble <$> getNaturalOrFloat lexer
-    where
-        toDouble (Left i) = fromIntegral i
-        toDouble (Right f) = f
-
-parseColorLit :: Parser Quilt
-parseColorLit =
-        makeColorLitParser "red"
-    <|> makeColorLitParser "green"
-    <|> makeColorLitParser "blue"
-    <|> makeColorLitParser "black"
-    <|> makeColorLitParser "white"
-    <|> makeColorLitParser "yellow"
-    <|> makeColorLitParser "orange"
-    <|> makeColorLitParser "gray"
-
-makeColorLitParser :: String -> Parser Quilt
-makeColorLitParser s = (ColorLit $ toColor s) <$ reservedOp s
-
-parseCoord :: Parser Quilt
-parseCoord =
-        (Param CoordX) <$ reservedOp "x"
-    <|> (Param CoordY) <$ reservedOp "y"
-
-parseTriple :: Parser Quilt
-parseTriple =
-    Triple  <$  reservedOp "["
-            <*> parseQuilt
-            <*  reservedOp ","
-            <*> parseQuilt
-            <*  reservedOp ","
-            <*> parseQuilt
-            <*  reservedOp "]"
-
-parseNumber :: Parser Quilt
-parseNumber = NumberLit <$> double
-
-parseQuiltAtom :: Parser Quilt
-parseQuiltAtom =
-        parseColorLit
-    <|> parseCoord
-    <|> parseTriple
-    <|> parseNumber
-
-parseQuilt :: Parser Quilt
-parseQuilt = buildExpressionParser table parseQuiltAtom
-  where
-    table = [ [ Infix (Add <$ reservedOp "+") AssocLeft
-              ]
-            ]
-
-quilt :: Parser Quilt
-quilt = whiteSpace *> parseQuilt <* eof
 
 infer expr = case parse quilt expr of
     Left err -> show err
