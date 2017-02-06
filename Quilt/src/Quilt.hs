@@ -162,6 +162,7 @@ inferType (Triple r g b) = do
     where
         go TyNumber TyNumber TyNumber = Right TyColor
         go _ _ _ = Left ExpectedNumber
+inferType (Param _) = Right TyNumber
 inferType (Add e1 e2) = inferTerms e1 e2 inferArithm
 {-
 inferType (Sub e1 e2) = inferTerms e1 e2 inferAddSub
