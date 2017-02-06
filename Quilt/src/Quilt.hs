@@ -24,6 +24,7 @@ data Quilt where
     Param :: Coord -> Quilt
     Add :: Quilt -> Quilt -> Quilt
     If :: Quilt -> Quilt -> Quilt -> Quilt
+    QuiltOp :: Quilt -> Quilt -> Quilt -> Quilt -> Quilt
     deriving (Show)
 
 data Coord where
@@ -112,6 +113,14 @@ parseIf =
         <*  reservedOp "else"
         <*> parseQuilt
 
+parseQuiltOp :: Parser Quilt
+parseQuiltOp =
+    QuiltOp <$  reservedOp "quilt"
+            <*> parseQuilt
+            <*> parseQuilt
+            <*> parseQuilt
+            <*> parseQuilt
+
 parseQuiltAtom :: Parser Quilt
 parseQuiltAtom =
         parseColorLit
@@ -120,6 +129,7 @@ parseQuiltAtom =
     <|> parseNumber
     <|> parseBool
     <|> parseIf
+    <|> parseQuiltOp
 
 parseQuilt :: Parser Quilt
 parseQuilt = buildExpressionParser table parseQuiltAtom
@@ -194,6 +204,19 @@ inferType (If cond e1 e2) = do
             if t1 == t2 then Right t1
                         else Left TypeMismatch
         go _ _ _ = Left ExpectedBool
+inferType (QuiltOp q1 q2 q3 q4) = do
+    t1 <- inferType q1
+    t2 <- inferType q2
+    t3 <- inferType q3
+    t4 <- inferType q4
+    case commonType4 t1 t2 t3 t4 of
+        Nothing -> Left TypeMismatch
+        Just t -> Right t
+    where
+        commonType4 q1 q2 q3 q4 = do
+            t12 <- commonType q1 q2
+            t34 <- commonType q3 q4
+            commonType t12 t34
 
 inferType (Add e1 e2) = inferTerms e1 e2 inferArithm
 {-
@@ -244,6 +267,17 @@ interpQuilt (If cond e1 e2) = do
     e2' <- interpQuilt e2
     Right $ \x y -> if 1 == (head $ cond' x y) then e1' x y
                                                else e2' x y
+interpQuilt (QuiltOp q1 q2 q3 q4) = do
+    q1' <- interpQuilt q1
+    q2' <- interpQuilt q2
+    q3' <- interpQuilt q3
+    q4' <- interpQuilt q4
+    Right $ \x y ->
+        if x < 0 then if y >= 0 then q1' (x*2 + 1) (y*2 - 1)
+                                else q3' (x*2 + 1) (y*2 + 1)
+                 else if y >= 0 then q2' (x*2 - 1) (y*2 - 1)
+                                else q4' (x*2 - 1) (y*2 + 1)
+
 interpQuilt (Add e1 e2) = addFn <$> interpQuilt e1 <*> interpQuilt e2
     where
         addFn f1 f2 = \x y -> vAdd (f1 x y) (f2 x y)
