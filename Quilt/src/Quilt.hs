@@ -16,16 +16,75 @@ type Color = [Double]
 --   parameters are x and y coordinates in the range [-1,1].
 type QuiltFun = Double -> Double -> Color
 
+data Quilt where
+    ColorLit :: Color -> Quilt
+    Add :: Quilt -> Quilt -> Quilt
+    Param :: Coord -> Quilt
+    deriving (Show)
+
+data Coord where
+    CoordX :: Coord
+    CoordY :: Coord
+    deriving (Show)
+
+
+data Type where
+    TyColor :: Type
+    TyNumber :: Type
+    TyBool :: Type
+    deriving (Show)
+
+isSubtypeOf :: Type -> Type -> Bool
+isSubtypeOf TyColor  TyColor  = True
+isSubtypeOf TyNumber TyNumber = True
+isSubtypeOf TyBool   TyBool   = True
+isSubtypeOf TyNumber TyColor  = True
+isSubtypeOf _        _        = False
+
+commonType :: Type -> Type -> Maybe Type
+commonType t1 t2 =
+    if isSubtypeOf t1 t2
+        then Just t2
+        else if isSubtypeOf t2 t1
+            then Just t1
+            else Nothing
 
 data InferError where
-    Dummy :: InferError
+    TypeMismatch :: InferError
+    BoolInArithm :: InferError
+    BadExpTypes :: InferError
     deriving (Show)
 
 showInferError :: InferError -> String
-showInferError Dummy = "undefined"
+showInferError TypeMismatch = "Type mismatch"
+showInferError BoolInArithm = "Bool in an arithmetic expression"
+showInferError BadExpTypes = "Exponent is only defined for numbers"
 
-inferType :: Quilt -> Either InferError ()
-inferType _ = Right () -- TODO
+inferType :: Quilt -> Either InferError Type
+inferType (ColorLit _) = Right TyColor
+inferType (Add e1 e2) = inferTerms e1 e2 inferArithm
+{-
+inferType (Sub e1 e2) = inferTerms e1 e2 inferAddSub
+inferType (Mul e1 e2) = inferTerms e1 e2 inferMul
+inferType (Div e1 e2) = inferTerms e1 e2 inferDiv
+inferType (Exp e1 e2) = inferTerms e1 e2 inferExp
+    where
+        inferExp TyNumber TyNumber = Right TyNumber
+        inferExp _        _        = Left BadExpTypes
+-}
+
+inferTerms :: Quilt -> Quilt -> (Type -> Type -> Either InferError Type) -> Either InferError Type
+inferTerms e1 e2 f = do
+    u1 <- inferType e1
+    u2 <- inferType e2
+    f u1 u2
+
+inferArithm :: Type -> Type -> Either InferError Type
+inferArithm t1 t2 = case commonType t1 t2 of
+    Nothing -> Left TypeMismatch
+    Just t -> case t of
+        TyBool -> Left BoolInArithm
+        _      -> Right t
 
 
 data InterpError where
@@ -45,17 +104,6 @@ interpQuilt (Add e1 e2) = addFn <$> interpQuilt e1 <*> interpQuilt e2
         vAdd = zipWith (+)
 
 -- Parser
-data Quilt where
-    ColorLit :: Color -> Quilt
-    Add :: Quilt -> Quilt -> Quilt
-    Param :: Coord -> Quilt
-    deriving (Show)
-
-data Coord where
-    CoordX :: Coord
-    CoordY :: Coord
-    deriving (Show)
-
 toColor :: String -> Color
 toColor "red"    = [1,   0,   0]
 toColor "green"  = [0,   0.5, 0]
@@ -135,6 +183,11 @@ parseQuilt = buildExpressionParser table parseQuiltAtom
 quilt :: Parser Quilt
 quilt = whiteSpace *> parseQuilt <* eof
 
+infer expr = case parse quilt expr of
+    Left err -> show err
+    Right expr -> case inferType expr of
+        Left inferErr -> showInferError inferErr
+        Right t -> show t
 
 evalQuilt :: String -> Either String QuiltFun
 evalQuilt s = case parse quilt s of
