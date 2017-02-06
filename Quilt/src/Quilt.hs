@@ -212,7 +212,7 @@ data Type where
     TyBool :: Type
     deriving (Show, Eq)
 
--- is first type a subtype of the second one?
+-- checks if the first type is a subtype of the second one
 isSubtypeOf :: Type -> Type -> Bool
 isSubtypeOf TyColor  TyColor  = True
 isSubtypeOf TyNumber TyNumber = True
@@ -221,12 +221,10 @@ isSubtypeOf TyNumber TyColor  = True
 isSubtypeOf _        _        = False
 
 commonType :: Type -> Type -> Maybe Type
-commonType t1 t2 =
-    if isSubtypeOf t1 t2
-        then Just t2
-        else if isSubtypeOf t2 t1
-            then Just t1
-            else Nothing
+commonType t1 t2 = isSubtypeOfM t1 t2 <|> isSubtypeOfM t2 t1
+    where
+        isSubtypeOfM st t = if isSubtypeOf st t then Just t
+                                                else Nothing
 
 data InferError where
     TypeMismatch :: InferError
@@ -361,7 +359,7 @@ interpQuilt (Bin op e1 e2) = runBin op <$> interpQuilt e1 <*> interpQuilt e2
             fromBool $ op (f1 x y) (f2 x y)
 
 
-infer expr = case parse quilt expr of
+infer expr = case desugar <$> parse quilt expr of
     Left err -> show err
     Right expr -> case inferType expr of
         Left inferErr -> showInferError inferErr
