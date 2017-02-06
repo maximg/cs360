@@ -23,6 +23,7 @@ data Quilt where
     Triple :: Quilt -> Quilt -> Quilt -> Quilt
     Param :: Coord -> Quilt
     Add :: Quilt -> Quilt -> Quilt
+    If :: Quilt -> Quilt -> Quilt -> Quilt
     deriving (Show)
 
 data Coord where
@@ -102,6 +103,15 @@ parseBool =
         BoolLit True  <$ reservedOp "True"
     <|> BoolLit False <$ reservedOp "False"
 
+parseIf :: Parser Quilt
+parseIf =
+    If  <$  reservedOp "if"
+        <*> parseQuilt
+        <*  reservedOp "then"
+        <*> parseQuilt
+        <*  reservedOp "else"
+        <*> parseQuilt
+
 parseQuiltAtom :: Parser Quilt
 parseQuiltAtom =
         parseColorLit
@@ -109,6 +119,7 @@ parseQuiltAtom =
     <|> parseTriple
     <|> parseNumber
     <|> parseBool
+    <|> parseIf
 
 parseQuilt :: Parser Quilt
 parseQuilt = buildExpressionParser table parseQuiltAtom
@@ -128,7 +139,7 @@ data Type where
     TyColor :: Type
     TyNumber :: Type
     TyBool :: Type
-    deriving (Show)
+    deriving (Show, Eq)
 
 isSubtypeOf :: Type -> Type -> Bool
 isSubtypeOf TyColor  TyColor  = True
@@ -149,6 +160,7 @@ data InferError where
     TypeMismatch :: InferError
     BoolInArithm :: InferError
     ExpectedNumber :: InferError
+    ExpectedBool :: InferError
     BadExpTypes :: InferError
     deriving (Show)
 
@@ -156,6 +168,7 @@ showInferError :: InferError -> String
 showInferError TypeMismatch = "Type mismatch"
 showInferError BoolInArithm = "Bool in an arithmetic expression"
 showInferError ExpectedNumber = "Can only use numbers in a triplet"
+showInferError ExpectedBool = "'if' condition must be a boolean"
 showInferError BadExpTypes = "Exponent is only defined for numbers"
 
 inferType :: Quilt -> Either InferError Type
@@ -171,6 +184,17 @@ inferType (Triple r g b) = do
         go TyNumber TyNumber TyNumber = Right TyColor
         go _ _ _ = Left ExpectedNumber
 inferType (Param _) = Right TyNumber
+inferType (If cond e1 e2) = do
+    cond' <- inferType cond
+    e1' <- inferType e1
+    e2' <- inferType e2
+    go cond' e1' e2'
+    where
+        go TyBool t1 t2 =
+            if t1 == t2 then Right t1
+                        else Left TypeMismatch
+        go _ _ _ = Left ExpectedBool
+
 inferType (Add e1 e2) = inferTerms e1 e2 inferArithm
 {-
 inferType (Sub e1 e2) = inferTerms e1 e2 inferAddSub
@@ -214,6 +238,12 @@ interpQuilt (Triple r g b) = go <$> interpQuilt r <*> interpQuilt g <*> interpQu
     where go r' g' b' = \x y -> [head $ r' x y, head $ g' x y, head $ b' x y]
 interpQuilt (Param CoordX) = Right $ \x _ -> [x,x,x]
 interpQuilt (Param CoordY) = Right $ \_ y -> [y,y,y]
+interpQuilt (If cond e1 e2) = do
+    cond' <- interpQuilt cond
+    e1' <- interpQuilt e1
+    e2' <- interpQuilt e2
+    Right $ \x y -> if 1 == (head $ cond' x y) then e1' x y
+                                               else e2' x y
 interpQuilt (Add e1 e2) = addFn <$> interpQuilt e1 <*> interpQuilt e2
     where
         addFn f1 f2 = \x y -> vAdd (f1 x y) (f2 x y)
