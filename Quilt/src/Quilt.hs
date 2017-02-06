@@ -19,9 +19,10 @@ type QuiltFun = Double -> Double -> Color
 data Quilt where
     ColorLit :: Color -> Quilt
     NumberLit :: Double -> Quilt
+    BoolLit :: Bool -> Quilt
     Triple :: Quilt -> Quilt -> Quilt -> Quilt
-    Add :: Quilt -> Quilt -> Quilt
     Param :: Coord -> Quilt
+    Add :: Quilt -> Quilt -> Quilt
     deriving (Show)
 
 data Coord where
@@ -96,12 +97,18 @@ parseTriple =
 parseNumber :: Parser Quilt
 parseNumber = NumberLit <$> double
 
+parseBool :: Parser Quilt
+parseBool =
+        BoolLit True  <$ reservedOp "True"
+    <|> BoolLit False <$ reservedOp "False"
+
 parseQuiltAtom :: Parser Quilt
 parseQuiltAtom =
         parseColorLit
     <|> parseCoord
     <|> parseTriple
     <|> parseNumber
+    <|> parseBool
 
 parseQuilt :: Parser Quilt
 parseQuilt = buildExpressionParser table parseQuiltAtom
@@ -154,6 +161,7 @@ showInferError BadExpTypes = "Exponent is only defined for numbers"
 inferType :: Quilt -> Either InferError Type
 inferType (ColorLit _)  = Right TyColor
 inferType (NumberLit _) = Right TyNumber
+inferType (BoolLit _)   = Right TyBool
 inferType (Triple r g b) = do
     r' <- inferType r
     g' <- inferType g
@@ -201,6 +209,7 @@ showInterpError DummyIntErr = "undefined"
 interpQuilt :: Quilt -> Either InterpError QuiltFun
 interpQuilt (ColorLit c) = Right $ \x y -> c
 interpQuilt (NumberLit z) = Right $ \x y -> [z,z,z]
+interpQuilt (BoolLit z) = Right $ \x y -> [if z then 1 else 0]
 interpQuilt (Triple r g b) = go <$> interpQuilt r <*> interpQuilt g <*> interpQuilt b
     where go r' g' b' = \x y -> [head $ r' x y, head $ g' x y, head $ b' x y]
 interpQuilt (Param CoordX) = Right $ \x _ -> [x,x,x]
