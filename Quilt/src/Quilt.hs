@@ -275,8 +275,8 @@ inferType (Bin Minus e1 e2) = checkType2 TyColor e1 e2
 inferType (Bin Times e1 e2) = checkType2 TyColor e1 e2
 inferType (Bin Div e1 e2)   = checkType2 TyColor e1 e2
 
-inferType (Bin Lt e1 e2)    = checkType2 TyNumber e1 e2
-inferType (Bin Eq e1 e2)    = checkType2 TyNumber e1 e2
+inferType (Bin Lt e1 e2)    = checkType2 TyNumber e1 e2 *> pure TyBool
+inferType (Bin Eq e1 e2)    = checkType2 TyNumber e1 e2 *> pure TyBool
 
 inferType (Un Neg e1)       = inferType e1 >>= (\x ->
         if x == TyBool  then Left BoolInArithm
@@ -308,10 +308,14 @@ showInterpError DummyIntErr = "undefined"
 toBool :: Color -> Bool
 toBool (x:xs) = x == 1.0
 
+fromBool :: Bool -> Color
+fromBool True  = [1, 1, 1]
+fromBool False = [0, 0, 0]
+
 interpQuilt :: Quilt -> Either InterpError QuiltFun
 interpQuilt (ColorLit c) = Right $ \x y -> c
 interpQuilt (NumberLit z) = Right $ \x y -> [z,z,z]
-interpQuilt (BoolLit z) = Right $ \x y -> [if z then 1 else 0]
+interpQuilt (BoolLit z) = Right $ \x y -> fromBool z
 interpQuilt (Triple r g b) = go <$> interpQuilt r <*> interpQuilt g <*> interpQuilt b
     where go r' g' b' = \x y -> [head $ r' x y, head $ g' x y, head $ b' x y]
 interpQuilt (Param CoordX) = Right $ \x _ -> [x,x,x]
@@ -338,11 +342,15 @@ interpQuilt (Un Neg e1) = go <$> interpQuilt e1
 
 interpQuilt (Bin op e1 e2) = runBin op <$> interpQuilt e1 <*> interpQuilt e2
     where
-        runBin Plus  = applyOp (+)
-        runBin Minus = applyOp (-)
-        runBin Times = applyOp (*)
-        runBin Div   = applyOp (/)
-        applyOp op f1 f2 = \x y -> zipWith op (f1 x y) (f2 x y)
+        runBin Plus  = applyArithm (+)
+        runBin Minus = applyArithm (-)
+        runBin Times = applyArithm (*)
+        runBin Div   = applyArithm (/)
+        runBin Lt    = applyComp (<)
+        runBin Eq    = applyComp (==)
+        applyArithm op f1 f2 = \x y -> zipWith op (f1 x y) (f2 x y)
+        applyComp op f1 f2 = \x y ->
+            fromBool $ op (f1 x y) (f2 x y)
 
 
 infer expr = case parse quilt expr of
