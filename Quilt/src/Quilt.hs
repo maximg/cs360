@@ -18,6 +18,8 @@ type QuiltFun = Double -> Double -> Color
 
 data Quilt where
     ColorLit :: Color -> Quilt
+    NumberLit :: Double -> Quilt
+    Triple :: Quilt -> Quilt -> Quilt -> Quilt
     Add :: Quilt -> Quilt -> Quilt
     Param :: Coord -> Quilt
     deriving (Show)
@@ -27,6 +29,8 @@ data Coord where
     CoordY :: Coord
     deriving (Show)
 
+{- Type check
+ -}
 
 data Type where
     TyColor :: Type
@@ -52,16 +56,27 @@ commonType t1 t2 =
 data InferError where
     TypeMismatch :: InferError
     BoolInArithm :: InferError
+    ExpectedNumber :: InferError
     BadExpTypes :: InferError
     deriving (Show)
 
 showInferError :: InferError -> String
 showInferError TypeMismatch = "Type mismatch"
 showInferError BoolInArithm = "Bool in an arithmetic expression"
+showInferError ExpectedNumber = "Can only use numbers in a triplet"
 showInferError BadExpTypes = "Exponent is only defined for numbers"
 
 inferType :: Quilt -> Either InferError Type
-inferType (ColorLit _) = Right TyColor
+inferType (ColorLit _)  = Right TyColor
+inferType (NumberLit _) = Right TyNumber
+inferType (Triple r g b) = do
+    r' <- inferType r
+    g' <- inferType g
+    b' <- inferType b
+    go r' g' b'
+    where
+        go TyNumber TyNumber TyNumber = Right TyColor
+        go _ _ _ = Left ExpectedNumber
 inferType (Add e1 e2) = inferTerms e1 e2 inferArithm
 {-
 inferType (Sub e1 e2) = inferTerms e1 e2 inferAddSub
@@ -87,6 +102,9 @@ inferArithm t1 t2 = case commonType t1 t2 of
         _      -> Right t
 
 
+{- Interpreter
+ -}
+
 data InterpError where
     DummyIntErr :: InterpError
     deriving (Show)
@@ -96,6 +114,9 @@ showInterpError DummyIntErr = "undefined"
 
 interpQuilt :: Quilt -> Either InterpError QuiltFun
 interpQuilt (ColorLit c) = Right $ \x y -> c
+interpQuilt (NumberLit z) = Right $ \x y -> [z,z,z]
+interpQuilt (Triple r g b) = go <$> interpQuilt r <*> interpQuilt g <*> interpQuilt b
+    where go r' g' b' = \x y -> [head $ r' x y, head $ g' x y, head $ b' x y]
 interpQuilt (Param CoordX) = Right $ \x _ -> [x,x,x]
 interpQuilt (Param CoordY) = Right $ \_ y -> [y,y,y]
 interpQuilt (Add e1 e2) = addFn <$> interpQuilt e1 <*> interpQuilt e2
@@ -103,7 +124,10 @@ interpQuilt (Add e1 e2) = addFn <$> interpQuilt e1 <*> interpQuilt e2
         addFn f1 f2 = \x y -> vAdd (f1 x y) (f2 x y)
         vAdd = zipWith (+)
 
--- Parser
+
+{- Parser
+ -}
+
 toColor :: String -> Color
 toColor "red"    = [1,   0,   0]
 toColor "green"  = [0,   0.5, 0]
@@ -147,7 +171,7 @@ parseColorLit =
     <|> makeColorLitParser "gray"
 
 makeColorLitParser :: String -> Parser Quilt
-makeColorLitParser s = (ColorLit $ toColor s) <$ reservedOp s 
+makeColorLitParser s = (ColorLit $ toColor s) <$ reservedOp s
 
 parseCoord :: Parser Quilt
 parseCoord =
@@ -156,29 +180,30 @@ parseCoord =
 
 parseTriple :: Parser Quilt
 parseTriple =
-    mkColor <$  reservedOp "["
-            <*> double
+    Triple  <$  reservedOp "["
+            <*> parseQuilt
             <*  reservedOp ","
-            <*> double
+            <*> parseQuilt
             <*  reservedOp ","
-            <*> double
+            <*> parseQuilt
             <*  reservedOp "]"
-    where
-        mkColor r b g = ColorLit [r,g,b]
+
+parseNumber :: Parser Quilt
+parseNumber = NumberLit <$> double
 
 parseQuiltAtom :: Parser Quilt
 parseQuiltAtom =
         parseColorLit
     <|> parseCoord
     <|> parseTriple
+    <|> parseNumber
 
 parseQuilt :: Parser Quilt
 parseQuilt = buildExpressionParser table parseQuiltAtom
   where
     table = [ [ Infix (Add <$ reservedOp "+") AssocLeft
-              ]  
+              ]
             ]
-
 
 quilt :: Parser Quilt
 quilt = whiteSpace *> parseQuilt <* eof
