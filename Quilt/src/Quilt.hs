@@ -81,6 +81,12 @@ reservedOp = getReservedOp lexer
 whiteSpace :: Parser ()
 whiteSpace = getWhiteSpace lexer
 
+double :: Parser Double
+double     = toDouble <$> getNaturalOrFloat lexer
+    where
+        toDouble (Left i) = fromIntegral i
+        toDouble (Right f) = f
+
 parseColorLit :: Parser Quilt
 parseColorLit =
         makeColorLitParser "red"
@@ -100,10 +106,23 @@ parseCoord =
         (Param CoordX) <$ reservedOp "x"
     <|> (Param CoordY) <$ reservedOp "y"
 
+parseTriple :: Parser Quilt
+parseTriple =
+    mkColor <$  reservedOp "["
+            <*> double
+            <*  reservedOp ","
+            <*> double
+            <*  reservedOp ","
+            <*> double
+            <*  reservedOp "]"
+    where
+        mkColor r b g = ColorLit [r,g,b]
+
 parseQuiltAtom :: Parser Quilt
 parseQuiltAtom =
         parseColorLit
     <|> parseCoord
+    <|> parseTriple
 
 parseQuilt :: Parser Quilt
 parseQuilt = buildExpressionParser table parseQuiltAtom
