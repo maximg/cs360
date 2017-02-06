@@ -6,6 +6,7 @@ module Quilt where
 
 import Prelude
 import Parsing2
+import Data.Maybe
 
 -- | A color is a list of red, green, and blue values between 0.0 - 1.0.
 --   For example, [0,0,0] is black, [1,1,1] is white, [0.5, 0, 0.5] is a
@@ -16,13 +17,31 @@ type Color = [Double]
 --   parameters are x and y coordinates in the range [-1,1].
 type QuiltFun = Double -> Double -> Color
 
+data Op where
+    Plus  :: Op
+    Minus :: Op
+    Times :: Op
+    Div   :: Op
+    Lt    :: Op
+    Le    :: Op
+    Eq    :: Op
+    Ne    :: Op
+    Gt    :: Op
+    Ge    :: Op
+    Neg   :: Op
+    Not   :: Op
+    And   :: Op
+    Or    :: Op
+    deriving (Show)
+
 data Quilt where
     ColorLit :: Color -> Quilt
     NumberLit :: Double -> Quilt
     BoolLit :: Bool -> Quilt
     Triple :: Quilt -> Quilt -> Quilt -> Quilt
     Param :: Coord -> Quilt
-    Add :: Quilt -> Quilt -> Quilt
+    Bin :: Op -> Quilt -> Quilt -> Quilt
+    Un :: Op -> Quilt -> Quilt
     If :: Quilt -> Quilt -> Quilt -> Quilt
     QuiltOp :: Quilt -> Quilt -> Quilt -> Quilt -> Quilt
     deriving (Show)
@@ -130,16 +149,50 @@ parseQuiltAtom =
     <|> parseBool
     <|> parseIf
     <|> parseQuiltOp
+    <|> parens parseQuilt
 
 parseQuilt :: Parser Quilt
 parseQuilt = buildExpressionParser table parseQuiltAtom
   where
-    table = [ [ Infix (Add <$ reservedOp "+") AssocLeft
+    table = [ [ Prefix (Un Neg   <$ reservedOp "-")
+              ]
+            , [ Infix (Bin Times <$ reservedOp "*") AssocLeft
+              , Infix (Bin Div   <$ reservedOp "/") AssocLeft
+              ]
+            , [ Infix (Bin Plus  <$ reservedOp "+") AssocLeft
+              , Infix (Bin Minus <$ reservedOp "-") AssocLeft
+              ]
+            , [ Prefix (Un Not   <$ reservedOp "!")
+              ]
+            , [ Infix (Bin Lt    <$ reservedOp "<")  AssocNone
+              , Infix (Bin Eq    <$ reservedOp "==") AssocNone
+              , Infix (Bin Gt    <$ reservedOp ">")  AssocNone
+              , Infix (Bin Le    <$ reservedOp "<=") AssocNone
+              , Infix (Bin Ge    <$ reservedOp ">=") AssocNone
+              , Infix (Bin Ne    <$ reservedOp "!=") AssocNone
+              ]
+            , [ Infix (Bin And   <$ reservedOp "&&") AssocRight
+              ]
+            , [ Infix (Bin Or    <$ reservedOp "||") AssocRight
               ]
             ]
 
 quilt :: Parser Quilt
 quilt = whiteSpace *> parseQuilt <* eof
+
+
+{- Desugar
+-}
+
+desugar :: Quilt -> Quilt
+desugar (Un Not e1)     = (If e1 (BoolLit False) (BoolLit True))
+desugar (Bin And e1 e2) = (If e1 e2 (BoolLit False))
+desugar (Bin Or e1 e2)  = (If e1 (BoolLit True) e2)
+desugar (Bin Gt e1 e2)  = (Bin Lt e2 e1)
+desugar (Bin Ne e1 e2)  = (If (Bin Eq e1 e2) (BoolLit False) (BoolLit True))
+desugar (Bin Le e1 e2)  = (If (Bin Lt e2 e1) (BoolLit False) (BoolLit True))
+desugar (Bin Ge e1 e2)  = (If (Bin Lt e1 e2) (BoolLit False) (BoolLit True))
+desugar v = v
 
 
 {- Type check
@@ -151,6 +204,7 @@ data Type where
     TyBool :: Type
     deriving (Show, Eq)
 
+-- is first type a subtype of the second one?
 isSubtypeOf :: Type -> Type -> Bool
 isSubtypeOf TyColor  TyColor  = True
 isSubtypeOf TyNumber TyNumber = True
@@ -171,7 +225,6 @@ data InferError where
     BoolInArithm :: InferError
     ExpectedNumber :: InferError
     ExpectedBool :: InferError
-    BadExpTypes :: InferError
     deriving (Show)
 
 showInferError :: InferError -> String
@@ -179,7 +232,6 @@ showInferError TypeMismatch = "Type mismatch"
 showInferError BoolInArithm = "Bool in an arithmetic expression"
 showInferError ExpectedNumber = "Can only use numbers in a triplet"
 showInferError ExpectedBool = "'if' condition must be a boolean"
-showInferError BadExpTypes = "Exponent is only defined for numbers"
 
 inferType :: Quilt -> Either InferError Type
 inferType (ColorLit _)  = Right TyColor
@@ -218,29 +270,29 @@ inferType (QuiltOp q1 q2 q3 q4) = do
             t34 <- commonType q3 q4
             commonType t12 t34
 
-inferType (Add e1 e2) = inferTerms e1 e2 inferArithm
-{-
-inferType (Sub e1 e2) = inferTerms e1 e2 inferAddSub
-inferType (Mul e1 e2) = inferTerms e1 e2 inferMul
-inferType (Div e1 e2) = inferTerms e1 e2 inferDiv
-inferType (Exp e1 e2) = inferTerms e1 e2 inferExp
-    where
-        inferExp TyNumber TyNumber = Right TyNumber
-        inferExp _        _        = Left BadExpTypes
--}
+inferType (Bin Plus e1 e2)  = checkType2 TyColor e1 e2
+inferType (Bin Minus e1 e2) = checkType2 TyColor e1 e2
+inferType (Bin Times e1 e2) = checkType2 TyColor e1 e2
+inferType (Bin Div e1 e2)   = checkType2 TyColor e1 e2
 
-inferTerms :: Quilt -> Quilt -> (Type -> Type -> Either InferError Type) -> Either InferError Type
-inferTerms e1 e2 f = do
-    u1 <- inferType e1
-    u2 <- inferType e2
-    f u1 u2
+inferType (Bin Lt e1 e2)    = checkType2 TyNumber e1 e2
+inferType (Bin Eq e1 e2)    = checkType2 TyNumber e1 e2
 
-inferArithm :: Type -> Type -> Either InferError Type
-inferArithm t1 t2 = case commonType t1 t2 of
-    Nothing -> Left TypeMismatch
-    Just t -> case t of
-        TyBool -> Left BoolInArithm
-        _      -> Right t
+inferType (Un Neg e1)       = inferType e1 >>= (\x ->
+        if x == TyBool  then Left BoolInArithm
+                        else Right x
+    )
+
+-- check if types of subexpressions are (sub)type of type
+-- return the common type of subexpressions
+checkType2 :: Type -> Quilt -> Quilt -> Either InferError Type
+checkType2 t e1 e2 = do
+    t1 <- inferType e1
+    t2 <- inferType e2
+    let t' = commonType t1 t2
+    case flip isSubtypeOf t <$> t' of
+        Just True -> Right $ fromJust t'
+        _         -> Left TypeMismatch
 
 
 {- Interpreter
@@ -252,6 +304,9 @@ data InterpError where
 
 showInterpError :: InterpError -> String
 showInterpError DummyIntErr = "undefined"
+
+toBool :: Color -> Bool
+toBool (x:xs) = x == 1.0
 
 interpQuilt :: Quilt -> Either InterpError QuiltFun
 interpQuilt (ColorLit c) = Right $ \x y -> c
@@ -265,8 +320,8 @@ interpQuilt (If cond e1 e2) = do
     cond' <- interpQuilt cond
     e1' <- interpQuilt e1
     e2' <- interpQuilt e2
-    Right $ \x y -> if 1 == (head $ cond' x y) then e1' x y
-                                               else e2' x y
+    Right $ \x y -> if toBool $ cond' x y then e1' x y
+                                          else e2' x y
 interpQuilt (QuiltOp q1 q2 q3 q4) = do
     q1' <- interpQuilt q1
     q2' <- interpQuilt q2
@@ -278,10 +333,16 @@ interpQuilt (QuiltOp q1 q2 q3 q4) = do
                  else if y >= 0 then q2' (x*2 - 1) (y*2 - 1)
                                 else q4' (x*2 - 1) (y*2 + 1)
 
-interpQuilt (Add e1 e2) = addFn <$> interpQuilt e1 <*> interpQuilt e2
+interpQuilt (Un Neg e1) = go <$> interpQuilt e1
+    where go f1 = \x y -> map (\z -> -z) (f1 x y)
+
+interpQuilt (Bin op e1 e2) = runBin op <$> interpQuilt e1 <*> interpQuilt e2
     where
-        addFn f1 f2 = \x y -> vAdd (f1 x y) (f2 x y)
-        vAdd = zipWith (+)
+        runBin Plus  = applyOp (+)
+        runBin Minus = applyOp (-)
+        runBin Times = applyOp (*)
+        runBin Div   = applyOp (/)
+        applyOp op f1 f2 = \x y -> zipWith op (f1 x y) (f2 x y)
 
 
 infer expr = case parse quilt expr of
@@ -293,8 +354,9 @@ infer expr = case parse quilt expr of
 evalQuilt :: String -> Either String QuiltFun
 evalQuilt s = case parse quilt s of
     Left err -> Left $ show err -- FIXME
-    Right expr -> case inferType expr of
+    Right expr -> let desugared = desugar expr in
+        case inferType desugared of
         Left inferErr -> Left $ showInferError inferErr
-        Right _ -> case interpQuilt expr of
+        Right _ -> case interpQuilt desugared of
             Left interpErr -> Left $ showInterpError interpErr
             Right f -> Right f
