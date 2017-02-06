@@ -66,7 +66,12 @@ toColor "orange" = [1,   0.6, 0]
 toColor "gray"   = [0.5, 0.5, 0.5]
 
 lexer :: TokenParser u
-lexer = makeTokenParser emptyDef
+lexer = makeTokenParser $ emptyDef
+    { reservedNames = [
+        "x", "y",
+        "if", "then", "else",
+        "red", "green", "blue", "black", "white", "yellow", "orange", "gray"
+    ] }
 
 parens :: Parser a -> Parser a
 parens = getParens lexer
@@ -76,6 +81,9 @@ identifier = getIdentifier lexer
 
 reservedOp :: String -> Parser ()
 reservedOp = getReservedOp lexer
+
+reserved :: String -> Parser ()
+reserved = getReserved lexer
 
 whiteSpace :: Parser ()
 whiteSpace = getWhiteSpace lexer
@@ -98,12 +106,12 @@ parseColorLit =
     <|> makeColorLitParser "gray"
 
 makeColorLitParser :: String -> Parser Quilt
-makeColorLitParser s = (ColorLit $ toColor s) <$ reservedOp s
+makeColorLitParser s = (ColorLit $ toColor s) <$ reserved s
 
 parseCoord :: Parser Quilt
 parseCoord =
-        (Param CoordX) <$ reservedOp "x"
-    <|> (Param CoordY) <$ reservedOp "y"
+        (Param CoordX) <$ reserved "x"
+    <|> (Param CoordY) <$ reserved "y"
 
 parseTriple :: Parser Quilt
 parseTriple =
