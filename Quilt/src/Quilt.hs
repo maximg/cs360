@@ -332,16 +332,13 @@ interpQuilt (If cond e1 e2) = do
     e2' <- interpQuilt e2
     Right $ \x y -> if toBool $ cond' x y then e1' x y
                                           else e2' x y
-interpQuilt (QuiltOp q1 q2 q3 q4) = do
-    q1' <- interpQuilt q1
-    q2' <- interpQuilt q2
-    q3' <- interpQuilt q3
-    q4' <- interpQuilt q4
-    Right $ \x y ->
-        if x < 0 then if y >= 0 then q1' (x*2 + 1) (y*2 - 1)
-                                else q3' (x*2 + 1) (y*2 + 1)
-                 else if y >= 0 then q2' (x*2 - 1) (y*2 - 1)
-                                else q4' (x*2 - 1) (y*2 + 1)
+interpQuilt (QuiltOp q1 q2 q3 q4) =
+    go <$> interpQuilt q1 <*> interpQuilt q2 <*> interpQuilt q3 <*> interpQuilt q4
+    where go q1' q2' q3' q4' = \x y -> case (x < 0, y > 0) of
+            (True, True)  -> q1' (x*2 + 1) (y*2 - 1)
+            (False,True)  -> q2' (x*2 - 1) (y*2 - 1)
+            (True, False) -> q3' (x*2 + 1) (y*2 + 1)
+            (False,False) -> q4' (x*2 - 1) (y*2 + 1)
 
 interpQuilt (Un Neg e1) = go <$> interpQuilt e1
     where go f1 = \x y -> map (\z -> -z) (f1 x y)
