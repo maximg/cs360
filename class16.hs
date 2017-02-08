@@ -44,6 +44,14 @@ infixl 4 <.
 (<.) :: Ord a => Quilt a -> Quilt a -> Quilt Bool
 q1 <. q2 = \x y -> q1 x y < q2 x y
 
+infixr 3 &&.
+infixr 3 ||.
+
+(&&.), (||.) :: Quilt Bool -> Quilt Bool -> Quilt Bool
+a &&. b = \x y -> a x y && b x y
+a ||. b = \x y -> a x y || b x y
+
+
 quilterate :: Int -> Quilt a -> Quilt a
 quilterate 0 q = q
 quilterate n q = let q' = quilterate (n-1) q in quilt q' q' q' q'
@@ -140,12 +148,21 @@ swirl =
     in  mkGrey swirl'    * (solid yellow) + 
         mkGrey ((y+1)/2) * (solid blue)
 
+simple :: Quilt Color
 simple = let grate = -cos (x*20*pi)/2 + 0.5 
     in mkGrey $ rot (40*(0.5-(x*x + y*y))) grate
 
-test = renderQuilt 256 "quilt.png
 
+sierpinsky :: Int -> Quilt Color
+sierpinsky 0 = scale 0.33 $ ifQ (abs x <. 1 &&. abs y <. 1) (solid white) (solid black)
+sierpinsky n = go $ sierpinsky (n - 1)
+    where go c = let c' = scale 0.333 c
+                     -- FIXME: exclude 0,0
+                     tiles = [tx dx $ ty dy c' | dx <- [-0.666, 0.0, 0.666],
+                                                 dy <- [-0.666, 0.0, 0.666]]
+                 in foldr (+) c tiles
 
+test = renderQuilt 256 "quilt.png"
 
 renderQuilt :: Int -> FilePath -> Quilt Color -> IO ()
 renderQuilt qSize fn q = do
