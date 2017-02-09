@@ -19,6 +19,7 @@ library
   other-modules:       Parsing2  
   build-depends:       base >= 4.7 && < 5
                      , parsec
+                     , containers
   default-language:    Haskell2010
 
 executable Quilt-exe
