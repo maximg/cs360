@@ -156,3 +156,11 @@ opt (QMap f q) = QMap f (opt q)
 opt (QZip f q1 q2) = QZip f (opt q1) (opt q2)
 opt (QRot (QRot q deg1) deg2) = opt (QRot q (deg1 + deg2))
 opt x = x
+
+quiltSize :: Quilt a -> Int
+quiltSize (QIf cond eT eF) = 1 + quiltSize cond + quiltSize eT + quiltSize eF
+quiltSize (QQuilt q1 q2 q3 q4) = 1 + quiltSize q1 + quiltSize q2 + quiltSize q3 + quiltSize q4
+quiltSize (QMap _ q) = 1 + quiltSize q
+quiltSize (QZip _ q1 q2) = 1 + quiltSize q1 + quiltSize q2
+quiltSize (QRot q _) = 1 + quiltSize q
+quiltSize _ = 1
